@@ -19,14 +19,16 @@ import java.io.BufferedReader
 import java.io.File
 import java.io.InputStream
 import java.io.InputStreamReader
+import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * User-authorized Shizuku/Rish execution service. This service never auto-grants elevated access.
- * The Rish launcher must be installed into this app's private no-backup directory by a trusted
- * provisioning path before commands can run. Commands are argument arrays, not arbitrary shell
- * strings, and the executable is allowlisted.
+ * User-authorized Shizuku/Rish execution service.
+ *
+ * Rish is launched as this app's own UID, so it can read its private DEX and use its Shizuku
+ * binder. Rish then creates the remote shell through Shizuku. The app never invokes the Rish
+ * script as the shell UID because the shell UID cannot read the app-private DEX.
  */
 class ShizukuExecutionEngine : Service() {
     data class ExecutionRequest(
@@ -51,17 +53,17 @@ class ShizukuExecutionEngine : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val binderAlive = AtomicBoolean(false)
-    private val granted = AtomicBoolean(false)
+    private val activePermission = AtomicBoolean(false)
     private var activeJob: Job? = null
     private val localBinder = LocalBinder()
     private val binderReceivedListener = Shizuku.OnBinderReceivedListener { updateShizukuState() }
     private val binderDeadListener = Shizuku.OnBinderDeadListener {
         binderAlive.set(false)
-        granted.set(false)
+        activePermission.set(false)
     }
     private val permissionListener = Shizuku.OnRequestPermissionResultListener { requestCode, result ->
         if (requestCode == PERMISSION_REQUEST_CODE) {
-            granted.set(result == PackageManager.PERMISSION_GRANTED)
+            activePermission.set(result == PackageManager.PERMISSION_GRANTED)
         }
     }
 
@@ -86,34 +88,43 @@ class ShizukuExecutionEngine : Service() {
         if (Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
             Shizuku.requestPermission(PERMISSION_REQUEST_CODE)
         } else {
-            granted.set(true)
+            activePermission.set(true)
         }
     }
 
-    /** Install a Rish launcher supplied through a trusted local provisioning workflow. */
-    suspend fun installRishLauncher(input: InputStream) = withContext(Dispatchers.IO) {
-        val destination = rishFile()
-        val bytes = input.use { stream ->
-            val output = java.io.ByteArrayOutputStream()
-            val buffer = ByteArray(8192)
-            var total = 0
-            while (true) {
-                val count = stream.read(buffer)
-                if (count < 0) break
-                total += count
-                require(total <= MAX_RISH_BYTES) { "Rish launcher exceeds size limit" }
-                output.write(buffer, 0, count)
-            }
-            output.toByteArray()
+    /**
+     * Installs the official Rish shell script and its matching DEX into app-private storage.
+     * Expected SHA-256 values must come from the trusted Shizuku export/provisioning channel.
+     * On Android 14+, the DEX is made read-only because app_process rejects writable DEX files.
+     */
+    suspend fun installRishBundle(
+        scriptInput: InputStream,
+        dexInput: InputStream,
+        expectedScriptSha256: String,
+        expectedDexSha256: String
+    ) = withContext(Dispatchers.IO) {
+        require(expectedScriptSha256.matches(Regex("(?i)^[0-9a-f]{64}$"))) { "Invalid expected Rish script digest" }
+        require(expectedDexSha256.matches(Regex("(?i)^[0-9a-f]{64}$"))) { "Invalid expected Rish DEX digest" }
+        val scriptBytes = scriptInput.use { readBounded(it, MAX_RISH_SCRIPT_BYTES) }
+        val dexBytes = dexInput.use { readBounded(it, MAX_RISH_DEX_BYTES) }
+        require(scriptBytes.isNotEmpty() && scriptBytes.take(2).toByteArray().contentEquals("#!".toByteArray())) {
+            "Rish script must start with a shebang"
         }
-        require(bytes.isNotEmpty() && bytes.take(2).toByteArray().contentEquals("#!".toByteArray())) {
-            "Rish launcher must be a non-empty script with a shebang"
-        }
-        destination.writeBytes(bytes)
-        check(destination.setReadable(false, false) && destination.setWritable(false, false) &&
-            destination.setExecutable(false, false))
-        check(destination.setReadable(true, true) && destination.setWritable(true, true) &&
-            destination.setExecutable(true, true)) { "Unable to set private Rish launcher permissions" }
+        require(dexBytes.isNotEmpty()) { "Rish DEX is empty" }
+        check(sha256(scriptBytes).equals(expectedScriptSha256, true)) { "Rish script SHA-256 mismatch" }
+        check(sha256(dexBytes).equals(expectedDexSha256, true)) { "Rish DEX SHA-256 mismatch" }
+
+        val dir = noBackupFilesDir
+        val dex = File(dir, RISH_DEX_NAME)
+        val script = File(dir, RISH_SCRIPT_NAME)
+        dex.writeBytes(dexBytes)
+        check(dex.setReadable(false, false) && dex.setWritable(false, false) &&
+            dex.setReadable(true, true)) { "Could not set Rish DEX to owner-readable and read-only" }
+        script.writeBytes(scriptBytes)
+        check(script.setReadable(false, false) && script.setWritable(false, false) &&
+            script.setExecutable(false, false))
+        check(script.setReadable(true, true) && script.setWritable(true, true) &&
+            script.setExecutable(true, true)) { "Could not set Rish script permissions" }
     }
 
     suspend fun execute(request: ExecutionRequest): ExecutionResult = withContext(Dispatchers.IO) {
@@ -124,26 +135,29 @@ class ShizukuExecutionEngine : Service() {
             "Argument count or size exceeds execution limits"
         }
         if (!hasExecutionPermission()) throw SecurityException("Shizuku binder or permission is unavailable")
-        val rish = rishFile()
-        check(rish.isFile && rish.canExecute()) {
-            "Rish launcher is not installed. Provision a trusted Rish launcher before execution."
+
+        val rish = File(noBackupFilesDir, RISH_SCRIPT_NAME)
+        val dex = File(noBackupFilesDir, RISH_DEX_NAME)
+        check(rish.isFile && rish.canExecute() && dex.isFile && dex.canRead() && !dex.canWrite()) {
+            "A verified Rish script and read-only Rish DEX must be installed before execution"
         }
 
-        val started = System.nanoTime()
         val command = (listOf(request.executable) + request.arguments).joinToString(" ") { shellQuote(it) }
-        val process = Shizuku.newProcess(
-            arrayOf(rish.absolutePath, "-c", command),
-            arrayOf("RISH_PRESERVE_ENV=1"),
-            noBackupFilesDir.absolutePath
-        )
-        val stdoutJob = scope.async { readBounded(process.inputStream) }
-        val stderrJob = scope.async { readBounded(process.errorStream) }
+        val builder = ProcessBuilder(rish.absolutePath, "-c", command)
+            .directory(noBackupFilesDir)
+        builder.environment()["RISH_PRESERVE_ENV"] = "1"
+        builder.environment()["RISH_APPLICATION_ID"] = applicationInfo.packageName
+
+        val started = System.nanoTime()
+        val process = builder.start()
+        val stdoutJob = scope.async { readBounded(process.inputStream, MAX_OUTPUT_CHARS) }
+        val stderrJob = scope.async { readBounded(process.errorStream, MAX_OUTPUT_CHARS) }
         var completed = false
         try {
             completed = process.waitFor(request.timeoutSeconds, TimeUnit.SECONDS)
             if (!completed) {
                 process.destroy()
-                if (!process.waitFor(1, TimeUnit.SECONDS)) process.destroyForcibly()
+                if (process.isAlive) process.destroyForcibly()
             }
             val stdout = stdoutJob.await()
             val stderr = stderrJob.await()
@@ -184,28 +198,43 @@ class ShizukuExecutionEngine : Service() {
 
     private fun updateShizukuState() {
         binderAlive.set(Shizuku.pingBinder())
-        granted.set(Shizuku.pingBinder() &&
+        activePermission.set(Shizuku.pingBinder() &&
             Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED)
     }
 
-    private fun rishFile() = File(noBackupFilesDir, "rish")
-
     private fun shellQuote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
 
-    private suspend fun readBounded(input: InputStream): String = withContext(Dispatchers.IO) {
+    private fun readBounded(input: InputStream, limit: Int): ByteArray {
+        val output = java.io.ByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        var total = 0
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            total += count
+            require(total <= limit) { "Input exceeds size limit" }
+            output.write(buffer, 0, count)
+        }
+        return output.toByteArray()
+    }
+
+    private suspend fun readBounded(input: InputStream, limit: Int): String = withContext(Dispatchers.IO) {
         val output = StringBuilder()
         BufferedReader(InputStreamReader(input, Charsets.UTF_8)).use { reader ->
             val buffer = CharArray(2048)
             while (true) {
                 val count = reader.read(buffer)
                 if (count < 0) break
-                if (output.length < MAX_OUTPUT_CHARS) {
-                    output.append(buffer, 0, minOf(count, MAX_OUTPUT_CHARS - output.length))
+                if (output.length < limit) {
+                    output.append(buffer, 0, minOf(count, limit - output.length))
                 }
             }
         }
         output.toString()
     }
+
+    private fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256")
+        .digest(bytes).joinToString("") { "%02x".format(it) }
 
     override fun onDestroy() {
         cancelActiveExecution()
@@ -222,8 +251,11 @@ class ShizukuExecutionEngine : Service() {
         private const val MAX_ARGUMENTS = 64
         private const val MAX_ARGUMENT_LENGTH = 4096
         private const val MAX_OUTPUT_CHARS = 64 * 1024
-        private const val MAX_RISH_BYTES = 4 * 1024 * 1024
+        private const val MAX_RISH_SCRIPT_BYTES = 128 * 1024
+        private const val MAX_RISH_DEX_BYTES = 8 * 1024 * 1024
         private const val TIMEOUT_EXIT_CODE = 124
+        private const val RISH_SCRIPT_NAME = "rish"
+        private const val RISH_DEX_NAME = "rish_shizuku.dex"
         private val ALLOWED_EXECUTABLES = setOf(
             "id", "uname", "getprop", "pm", "cmd", "settings", "dumpsys",
             "ls", "cat", "stat", "df", "du", "ps", "top", "toybox"
