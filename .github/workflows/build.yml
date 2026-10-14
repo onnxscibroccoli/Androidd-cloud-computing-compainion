@@ -88,6 +88,7 @@ jobs:
 
   release:
     name: Sign production controller APK
+    needs: verify
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -135,6 +136,9 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$RELEASE_KEYSTORE_BASE64" || { echo "::error::Missing RELEASE_KEYSTORE_BASE64"; exit 1; }
+          test -n "$OCI_CLIENT_ID" || { echo "::error::Missing OCI_CLIENT_ID"; exit 1; }
+          test -n "$OCI_DOMAIN_URL" || { echo "::error::Missing OCI_DOMAIN_URL"; exit 1; }
+          case "$OCI_DOMAIN_URL" in https://*) ;; *) echo "::error::OCI_DOMAIN_URL must use HTTPS"; exit 1 ;; esac
           test -n "$STORE_PASSWORD" || { echo "::error::Missing KEYSTORE_PASSWORD"; exit 1; }
           test -n "$KEY_PASSWORD" || { echo "::error::Missing KEY_PASSWORD"; exit 1; }
           test -n "$KEY_ALIAS" || { echo "::error::Missing KEY_ALIAS"; exit 1; }
