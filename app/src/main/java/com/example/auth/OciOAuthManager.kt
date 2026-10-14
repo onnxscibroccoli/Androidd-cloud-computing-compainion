@@ -138,7 +138,7 @@ class OciOAuthManager(
                 .build()
         )
         val result = fresh.copy(
-            idToken = fresh.idToken.ifBlank { prefs.getString(KEY_ID, "").orEmpty() },
+            idToken = prefs.getString(KEY_ID, "").orEmpty(),
             refreshToken = fresh.refreshToken ?: refresh
         )
         persist(result)
