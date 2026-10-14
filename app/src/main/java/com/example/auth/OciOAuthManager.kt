@@ -190,8 +190,8 @@ class OciOAuthManager(
     private fun verifyIdToken(token: String, expectedNonce: String) {
         val parts = token.split(".")
         if (parts.size != 3) throw SecurityException("ID token is not a compact JWS")
-        val header = JSONObject(String(PKCE.decode(parts[0]), Charsets.UTF_8))
-        val claims = JSONObject(String(PKCE.decode(parts[1]), Charsets.UTF_8))
+        val header = JSONObject(String(Pkce.decode(parts[0]), Charsets.UTF_8))
+        val claims = JSONObject(String(Pkce.decode(parts[1]), Charsets.UTF_8))
         if (header.optString("alg") != "RS256") throw SecurityException("Unsupported ID token algorithm")
         val kid = header.optString("kid")
         if (kid.isBlank()) throw SecurityException("ID token has no signing key ID")
@@ -219,13 +219,13 @@ class OciOAuthManager(
                 it.optString("kid") == kid && it.optString("kty") == "RSA" &&
                     it.optString("use", "sig") == "sig" && it.optString("alg", "RS256") == "RS256"
             } ?: throw SecurityException("No matching trusted RSA signing key")
-        val modulus = BigInteger(1, PKCE.decode(key.getString("n")))
-        val exponent = BigInteger(1, PKCE.decode(key.getString("e")))
+        val modulus = BigInteger(1, Pkce.decode(key.getString("n")))
+        val exponent = BigInteger(1, Pkce.decode(key.getString("e")))
         val publicKey = KeyFactory.getInstance("RSA").generatePublic(RSAPublicKeySpec(modulus, exponent))
         val verifier = Signature.getInstance("SHA256withRSA")
         verifier.initVerify(publicKey)
         verifier.update("${parts[0]}.${parts[1]}".toByteArray(Charsets.US_ASCII))
-        if (!verifier.verify(PKCE.decode(parts[2]))) throw SecurityException("ID token signature invalid")
+        if (!verifier.verify(Pkce.decode(parts[2]))) throw SecurityException("ID token signature invalid")
 
         if (claims.optString("iss") != issuer) throw SecurityException("ID token issuer mismatch")
         val audience = claims.opt("aud")
