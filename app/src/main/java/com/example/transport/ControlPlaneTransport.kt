@@ -88,20 +88,24 @@ class ControlPlaneTransport(
         onError: (Throwable) -> Unit,
         onCompleted: () -> Unit
     ): StreamObserver<DeviceTelemetry> {
+        val commandErrorCallback = onError
+        val completionCallback = onCompleted
         val stub = ControlPlaneGrpc.newStub(connect())
         return stub.deviceSession(object : StreamObserver<ExecutionCommand> {
             override fun onNext(value: ExecutionCommand) = onCommand(value)
-            override fun onError(t: Throwable) = onError(t)
-            override fun onCompleted() = onCompleted()
+            override fun onError(t: Throwable) = commandErrorCallback(t)
+            override fun onCompleted() = completionCallback()
         })
     }
 
-    fun failedStreamObserver(onError: (Throwable) -> Unit): StreamObserver<DeviceTelemetry> =
-        object : StreamObserver<DeviceTelemetry> {
+    fun failedStreamObserver(onError: (Throwable) -> Unit): StreamObserver<DeviceTelemetry> {
+        val errorCallback = onError
+        return object : StreamObserver<DeviceTelemetry> {
             override fun onNext(value: DeviceTelemetry) = Unit
-            override fun onError(t: Throwable) = onError(t)
-            override fun onCompleted() = onError(Status.UNAVAILABLE.asRuntimeException())
+            override fun onError(t: Throwable) = errorCallback(t)
+            override fun onCompleted() = errorCallback(Status.UNAVAILABLE.asRuntimeException())
         }
+    }
 
     @Synchronized
     override fun close() {
