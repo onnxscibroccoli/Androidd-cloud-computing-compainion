@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -74,6 +75,8 @@ fun DashboardScreen(
   onDispatchPreset: (CommandType, ExecutionTarget) -> Unit,
   onNavigateToTasks: () -> Unit,
   onTestHandshake: () -> Unit,
+  ociAuthStatus: String,
+  onOciSignIn: () -> Unit,
   modifier: Modifier = Modifier
 ) {
   LazyColumn(
@@ -124,6 +127,31 @@ fun DashboardScreen(
     // Explicit Demo Notice
     item {
       DemoHonestyBanner()
+    }
+
+    item {
+      Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+      ) {
+        Column(
+          modifier = Modifier.padding(16.dp),
+          verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+          Text("OCI Identity Domain", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+          Text(
+            text = ociAuthStatus,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp
+          )
+          Button(
+            onClick = onOciSignIn,
+            modifier = Modifier.fillMaxWidth().testTag("oci_pkce_sign_in")
+          ) {
+            Text("Sign in with OCI")
+          }
+        }
+      }
     }
 
     // Connection & mTLS Specification Banner
