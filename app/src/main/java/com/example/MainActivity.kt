@@ -123,7 +123,8 @@ class MainActivity : ComponentActivity() {
         MainControllerApp(
           viewModel = viewModel,
           ociAuthStatus = ociAuthStatus.value,
-          onOciSignIn = { beginOciSignIn() }
+          onOciSignIn = { beginOciSignIn() },
+          onRequestShizukuPermission = { viewModel.requestShizukuPermission() }
         )
       }
     }
@@ -202,7 +203,8 @@ class MainActivity : ComponentActivity() {
 fun MainControllerApp(
   viewModel: ControllerViewModel,
   ociAuthStatus: String,
-  onOciSignIn: () -> Unit
+  onOciSignIn: () -> Unit,
+  onRequestShizukuPermission: () -> Unit
 ) {
   val activeTab by viewModel.activeTab.collectAsStateWithLifecycle()
   val connectionState by viewModel.connectionState.collectAsStateWithLifecycle()
@@ -305,7 +307,8 @@ fun MainControllerApp(
           onNavigateToTasks = { viewModel.setTab(1) },
           onTestHandshake = { viewModel.attemptTlsHandshake() },
           ociAuthStatus = ociAuthStatus,
-          onOciSignIn = onOciSignIn
+          onOciSignIn = onOciSignIn,
+          onRequestShizukuPermission = onRequestShizukuPermission
         )
 
         1 -> ComputeQueueScreen(
