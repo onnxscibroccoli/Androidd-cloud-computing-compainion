@@ -1,9 +1,15 @@
 package com.example.execution
 
 import android.app.Service
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Intent
 import android.os.Binder
+import android.os.Build
 import android.os.IBinder
+import com.example.MainActivity
 import android.content.pm.PackageManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -75,7 +81,51 @@ class ShizukuExecutionEngine : Service() {
         updateShizukuState()
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_STOP) {
+            stopForeground(true)
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        startForeground(NOTIFICATION_ID, buildForegroundNotification())
+        return START_STICKY
+    }
+
     override fun onBind(intent: Intent?): IBinder = localBinder
+
+    private fun buildForegroundNotification(): Notification {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                NOTIFICATION_CHANNEL_ID,
+                "Shizuku execution",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "Visible status for user-authorized remote command execution"
+                setShowBadge(false)
+            }
+            (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
+                .createNotificationChannel(channel)
+        }
+        val openApp = PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, NOTIFICATION_CHANNEL_ID)
+        } else {
+            Notification.Builder(this)
+        }
+        return builder
+            .setContentTitle("OmniKali Shizuku execution")
+            .setContentText("User-authorized remote execution service is active.")
+            .setSmallIcon(android.R.drawable.stat_sys_upload_done)
+            .setContentIntent(openApp)
+            .setOngoing(true)
+            .setCategory(Notification.CATEGORY_SERVICE)
+            .build()
+    }
 
     fun isBinderConnected(): Boolean = Shizuku.pingBinder() && binderAlive.get()
 
@@ -238,6 +288,7 @@ class ShizukuExecutionEngine : Service() {
 
     override fun onDestroy() {
         cancelActiveExecution()
+        stopForeground(true)
         scope.cancel()
         Shizuku.removeBinderReceivedListener(binderReceivedListener)
         Shizuku.removeBinderDeadListener(binderDeadListener)
@@ -246,6 +297,9 @@ class ShizukuExecutionEngine : Service() {
     }
 
     companion object {
+        const val ACTION_STOP = "com.example.execution.STOP"
+        private const val NOTIFICATION_ID = 7130
+        private const val NOTIFICATION_CHANNEL_ID = "shizuku_execution"
         private const val PERMISSION_REQUEST_CODE = 7124
         private const val MAX_TIMEOUT_SECONDS = 900L
         private const val MAX_ARGUMENTS = 64
