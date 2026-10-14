@@ -65,7 +65,7 @@ fun MtlsSettingsScreen(
   connectionState: ConnectionState,
   config: MtlsConfig,
   onUpdateConfig: (String, Int, Int, Int, Boolean) -> Unit,
-  onGenerateNewCert: () -> Unit,
+  onProvisionIdentity: () -> Unit,
   onAttemptHandshake: () -> Unit,
   onDisconnect: () -> Unit,
   onClearAll: () -> Unit,
@@ -325,7 +325,7 @@ fun MtlsSettingsScreen(
               Icon(imageVector = Icons.Default.VpnKey, contentDescription = null, tint = SecurityGreen, modifier = Modifier.size(18.dp))
             }
             Spacer(modifier = Modifier.width(10.dp))
-            Text(text = "Client X.509 Identity (Provisioning Required)", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Text(text = "Client X.509 Identity (Device-Bound)", fontSize = 14.sp, fontWeight = FontWeight.Bold)
           }
 
           Spacer(modifier = Modifier.height(14.dp))
@@ -339,8 +339,7 @@ fun MtlsSettingsScreen(
           Spacer(modifier = Modifier.height(14.dp))
 
           OutlinedButton(
-            onClick = onGenerateNewCert,
-            enabled = false,
+            onClick = onProvisionIdentity,
             shape = RoundedCornerShape(10.dp),
             modifier = Modifier
               .fillMaxWidth()
@@ -348,7 +347,7 @@ fun MtlsSettingsScreen(
           ) {
             Icon(Icons.Default.Key, contentDescription = null, modifier = Modifier.size(16.dp))
             Spacer(modifier = Modifier.width(6.dp))
-            Text("Provisioning unavailable without enrollment service", fontSize = 12.sp)
+            Text("Import PKCS#12 Client Identity + Root CA", fontSize = 12.sp)
           }
         }
       }
