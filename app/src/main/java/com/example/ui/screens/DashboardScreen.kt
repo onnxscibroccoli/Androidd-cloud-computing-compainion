@@ -315,7 +315,7 @@ fun DashboardScreen(
               PresetTriggerButton(
                 title = "Edge Telemetry",
                 subtitle = "8k sensor frames",
-                target = "Hybrid (25% Local / 75% Demo)",
+                target = "Hybrid (25% Local / 75% OCI mTLS)",
                 icon = Icons.Default.Memory,
                 color = StreamCyan,
                 onClick = { onDispatchPreset(CommandType.SENSOR_TELEMETRY_BATCH, ExecutionTarget.HYBRID_SPLIT) }
