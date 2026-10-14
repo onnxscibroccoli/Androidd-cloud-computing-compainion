@@ -182,7 +182,7 @@ class ShizukuExecutionEngine : Service() {
         require(request.timeoutSeconds in 1L..MAX_TIMEOUT_SECONDS) { "timeoutSeconds must be 1..900" }
         require(request.executable in ALLOWED_EXECUTABLES) { "Executable is not allowlisted" }
         require(request.arguments.size <= MAX_ARGUMENTS && request.arguments.all {
-            it.length <= MAX_ARGUMENT_LENGTH && !it.contains('\\u0000')
+            it.length <= MAX_ARGUMENT_LENGTH && !it.contains('\u0000')
         }) {
             "Argument count or size exceeds execution limits"
         }
@@ -299,7 +299,7 @@ class ShizukuExecutionEngine : Service() {
     }
 
     private fun isSafeReadPath(path: String): Boolean {
-        if (path.isBlank() || path.contains("..") || path.contains('\\u0000')) return false
+        if (path.isBlank() || path.contains("..") || path.contains('\u0000')) return false
         if (listOf("/mem", "/environ", "/fd/", "/map_files/").any { path.contains(it) }) return false
         return path in SAFE_SYSTEM_PATHS || SAFE_SYSTEM_PATH_PREFIXES.any { path.startsWith(it) }
     }
