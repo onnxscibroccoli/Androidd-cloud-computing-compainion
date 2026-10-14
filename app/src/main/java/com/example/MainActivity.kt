@@ -2,7 +2,12 @@ package com.example
 
 import android.os.Bundle
 import android.content.Intent
+import android.net.Uri
+import android.app.AlertDialog
+import android.text.InputType
+import android.widget.EditText
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -41,7 +46,10 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.example.auth.OciOAuthManager
+import com.example.transport.ControlPlaneCredentialStore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.example.ui.screens.ComputeQueueScreen
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.MtlsSettingsScreen
@@ -54,6 +62,57 @@ class MainActivity : ComponentActivity() {
   private val viewModel: ControllerViewModel by viewModels()
   private val ociAuthStatus = mutableStateOf("OCI sign-in required")
   private var oauthManager: OciOAuthManager? = null
+  private var pendingIdentityUri: Uri? = null
+  private var pendingIdentityPassword: CharArray? = null
+
+  private val identityPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    if (uri == null) {
+      viewModel.showMessage("mTLS identity import cancelled.")
+    } else {
+      pendingIdentityUri = uri
+      promptIdentityPasswordAndChooseCa()
+    }
+  }
+
+  private val rootCaPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { caUri ->
+    val identityUri = pendingIdentityUri
+    val password = pendingIdentityPassword
+    if (caUri == null || identityUri == null || password == null) {
+      password?.fill('\\u0000')
+      pendingIdentityUri = null
+      pendingIdentityPassword = null
+      viewModel.showMessage("mTLS identity and root CA must both be selected.")
+      return@registerForActivityResult
+    }
+    lifecycleScope.launch {
+      try {
+        val summary = withContext(Dispatchers.IO) {
+          val identityStream = contentResolver.openInputStream(identityUri)
+            ?: throw IllegalStateException("Unable to read selected PKCS#12 identity")
+          val caStream = contentResolver.openInputStream(caUri)
+            ?: throw IllegalStateException("Unable to read selected root CA bundle")
+          ControlPlaneCredentialStore(applicationContext).importCredentials(
+            identityStream,
+            password,
+            caStream
+          )
+        }
+        viewModel.updateMtlsIdentitySummary(
+          subject = summary.subject,
+          issuer = summary.issuer,
+          fingerprint = summary.sha256Fingerprint,
+          rootCertificateCount = summary.rootCertificateCount
+        )
+        viewModel.showMessage("Device-bound mTLS identity provisioned. Verify the endpoint with the authenticated health check.")
+      } catch (error: Exception) {
+        viewModel.showMessage("mTLS identity import failed: " + (error.message ?: error.javaClass.simpleName))
+      } finally {
+        password.fill('\\u0000')
+        pendingIdentityUri = null
+        pendingIdentityPassword = null
+      }
+    }
+  }
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
@@ -75,6 +134,38 @@ class MainActivity : ComponentActivity() {
     super.onNewIntent(intent)
     setIntent(intent)
     handleOAuthIntent(intent)
+  }
+
+  private fun beginProvisioningIdentity() {
+    viewModel.showMessage("Select the device-specific PKCS#12 client identity.")
+    identityPicker.launch(arrayOf("application/x-pkcs12", "application/octet-stream"))
+  }
+
+  private fun promptIdentityPasswordAndChooseCa() {
+    val input = EditText(this).apply {
+      inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+      hint = "PKCS#12 password"
+    }
+    AlertDialog.Builder(this)
+      .setTitle("Unlock client identity")
+      .setMessage("Enter the password for this device's PKCS#12 identity. It will be stored encrypted with Android Keystore.")
+      .setView(input)
+      .setNegativeButton("Cancel") { _, _ ->
+        pendingIdentityUri = null
+        viewModel.showMessage("mTLS identity import cancelled.")
+      }
+      .setPositiveButton("Continue") { _, _ ->
+        val password = input.text?.toString()?.toCharArray() ?: charArrayOf()
+        if (password.isEmpty()) {
+          pendingIdentityUri = null
+          viewModel.showMessage("PKCS#12 password is required.")
+        } else {
+          pendingIdentityPassword = password
+          viewModel.showMessage("Select the trusted control-plane root CA PEM bundle.")
+          rootCaPicker.launch(arrayOf("application/x-pem-file", "text/plain", "application/octet-stream"))
+        }
+      }
+      .show()
   }
 
   private fun getOciOAuthManager(): OciOAuthManager =
@@ -241,7 +332,7 @@ fun MainControllerApp(
           onUpdateConfig = { host, port, latency, keepalive, mtls ->
             viewModel.updateMtlsConfig(host, port, latency, keepalive, mtls)
           },
-          onGenerateNewCert = { viewModel.generateNewEphemeralCert() },
+          onProvisionIdentity = { beginProvisioningIdentity() },
           onAttemptHandshake = { viewModel.attemptTlsHandshake() },
           onDisconnect = { viewModel.disconnectStream() },
           onClearAll = { viewModel.clearAllHistory() }
