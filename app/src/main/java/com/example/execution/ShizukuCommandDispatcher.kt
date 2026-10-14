@@ -57,7 +57,8 @@ class ShizukuCommandDispatcher(
 
     fun requestPermission() {
         startForegroundService()
-        val service = engine ?: throw IllegalStateException("Shizuku execution service is not bound yet")
+        if (!bound) bind()
+        val service = engine ?: throw IllegalStateException("Shizuku service is starting; request permission again once it is connected")
         service.requestExecutionPermission()
     }
 
