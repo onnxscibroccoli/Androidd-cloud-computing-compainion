@@ -6,6 +6,7 @@ plugins {
   alias(libs.plugins.google.devtools.ksp)
   alias(libs.plugins.secrets)
   alias(libs.plugins.google.services)
+  alias(libs.plugins.protobuf)
 }
 
 android {
@@ -18,6 +19,10 @@ android {
     targetSdk = 36
     versionCode = 1
     versionName = "1.0"
+    val ociClientId = (System.getenv("OCI_CLIENT_ID") ?: "").replace("\\", "\\\\").replace("\"", "\\\"")
+    val ociDomainUrl = (System.getenv("OCI_DOMAIN_URL") ?: "").replace("\\", "\\\\").replace("\"", "\\\"")
+    buildConfigField("String", "OCI_CLIENT_ID", "\"$ociClientId\"")
+    buildConfigField("String", "OCI_DOMAIN_URL", "\"$ociDomainUrl\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -29,7 +34,7 @@ android {
       val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
       storeFile = file(keystorePath)
       storePassword = System.getenv("STORE_PASSWORD")
-      keyAlias = "upload"
+      keyAlias = System.getenv("KEY_ALIAS") ?: "upload"
       keyPassword = System.getenv("KEY_PASSWORD")
     }
     create("debugConfig") {
