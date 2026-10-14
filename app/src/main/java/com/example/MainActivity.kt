@@ -1,6 +1,7 @@
 package com.example
 
 import android.os.Bundle
+import android.content.Intent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -27,6 +28,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -37,6 +39,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import com.example.auth.OciOAuthManager
+import kotlinx.coroutines.launch
 import com.example.ui.screens.ComputeQueueScreen
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.MtlsSettingsScreen
@@ -47,6 +52,8 @@ import com.example.viewmodel.ControllerViewModel
 class MainActivity : ComponentActivity() {
 
   private val viewModel: ControllerViewModel by viewModels()
+  private val ociAuthStatus = mutableStateOf("OCI sign-in required")
+  private var oauthManager: OciOAuthManager? = null
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
@@ -54,14 +61,58 @@ class MainActivity : ComponentActivity() {
 
     setContent {
       MyApplicationTheme {
-        MainControllerApp(viewModel = viewModel)
+        MainControllerApp(
+          viewModel = viewModel,
+          ociAuthStatus = ociAuthStatus.value,
+          onOciSignIn = { beginOciSignIn() }
+        )
+      }
+    }
+    handleOAuthIntent(intent)
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    handleOAuthIntent(intent)
+  }
+
+  private fun getOciOAuthManager(): OciOAuthManager =
+    oauthManager ?: OciOAuthManager(applicationContext).also { oauthManager = it }
+
+  private fun beginOciSignIn() {
+    try {
+      val request = getOciOAuthManager().createAuthorizationRequest()
+      ociAuthStatus.value = "Waiting for OCI authorization in the browser"
+      startActivity(Intent(Intent.ACTION_VIEW, request.url))
+    } catch (error: Exception) {
+      ociAuthStatus.value = "OCI sign-in unavailable: " + (error.message ?: error.javaClass.simpleName)
+    }
+  }
+
+  private fun handleOAuthIntent(intent: Intent?) {
+    val callback = intent?.data ?: return
+    if (callback.scheme != "com.onnxscibroccoli.omnikali" ||
+      callback.host != "oauth" || callback.path != "/callback") return
+    lifecycleScope.launch {
+      ociAuthStatus.value = "Validating OCI authorization response"
+      try {
+        val tokens = getOciOAuthManager().handleAuthorizationRedirect(callback)
+        ociAuthStatus.value = "OCI authenticated. Token type=" + tokens.tokenType +
+          "; expires in " + (tokens.expiresInSeconds?.toString() ?: "unknown") + " seconds."
+      } catch (error: Exception) {
+        ociAuthStatus.value = "OCI sign-in failed: " + (error.message ?: error.javaClass.simpleName)
       }
     }
   }
 }
 
 @Composable
-fun MainControllerApp(viewModel: ControllerViewModel) {
+fun MainControllerApp(
+  viewModel: ControllerViewModel,
+  ociAuthStatus: String,
+  onOciSignIn: () -> Unit
+) {
   val activeTab by viewModel.activeTab.collectAsStateWithLifecycle()
   val connectionState by viewModel.connectionState.collectAsStateWithLifecycle()
   val telemetry by viewModel.currentTelemetry.collectAsStateWithLifecycle()
@@ -161,7 +212,9 @@ fun MainControllerApp(viewModel: ControllerViewModel) {
           jobs = jobs,
           onDispatchPreset = { algo, target -> viewModel.dispatchPreset(algo, target) },
           onNavigateToTasks = { viewModel.setTab(1) },
-          onTestHandshake = { viewModel.attemptTlsHandshake() }
+          onTestHandshake = { viewModel.attemptTlsHandshake() },
+          ociAuthStatus = ociAuthStatus,
+          onOciSignIn = onOciSignIn
         )
 
         1 -> ComputeQueueScreen(
