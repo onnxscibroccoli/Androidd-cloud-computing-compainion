@@ -173,7 +173,7 @@ class OciOAuthManager(
             val json = JSONObject(payload)
             val access = json.optString("access_token")
             val id = json.optString("id_token")
-            if (access.isBlank() || id.isBlank()) throw IOException("Token response omitted access_token or id_token")
+            if (access.isBlank()) throw IOException("Token response omitted access_token")
             val tokenType = json.optString("token_type", "Bearer")
             if (!tokenType.equals("Bearer", true)) throw IOException("Unsupported token type")
             TokenSet(
