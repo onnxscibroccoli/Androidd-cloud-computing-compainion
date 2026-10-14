@@ -146,6 +146,12 @@ class ControllerViewModel(application: Application) : AndroidViewModel(applicati
       .onFailure { _snackbarMessage.value = "Shizuku unavailable: " + (it.message ?: it.javaClass.simpleName) }
   }
 
+  fun stopShizukuBackgroundExecution() {
+    runCatching { shizukuDispatcher.stopBackgroundExecution() }
+      .onSuccess { _snackbarMessage.value = "Shizuku background execution service stopped." }
+      .onFailure { _snackbarMessage.value = "Unable to stop Shizuku service: " + (it.message ?: it.javaClass.simpleName) }
+  }
+
   suspend fun installRishBundle(
     scriptInput: InputStream,
     dexInput: InputStream,
