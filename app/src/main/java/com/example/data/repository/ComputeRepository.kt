@@ -34,7 +34,7 @@ import java.util.concurrent.ConcurrentHashMap
 class ComputeRepository(
   private val database: AppDatabase,
   private val streamManager: MtlsStreamManager,
-  private val ociControllerService: OciControllerService = DemoOciControllerService(streamManager)
+  private val ociControllerService: OciControllerService = com.example.engine.UnconfiguredOciControllerService()
 ) {
   private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
   private val activeJobs = ConcurrentHashMap<String, Job>()
