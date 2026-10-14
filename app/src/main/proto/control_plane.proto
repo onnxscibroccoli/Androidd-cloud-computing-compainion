@@ -63,6 +63,7 @@ message ExecutionReceipt {
   int64 operations_count = 7;
   double worker_cpu_percent = 8;
   string result_summary = 9;
+  bool worker_cpu_measured = 10;
 }
 
 service ControlPlane {
