@@ -6,7 +6,32 @@ plugins {
   alias(libs.plugins.google.devtools.ksp)
   alias(libs.plugins.secrets)
   alias(libs.plugins.google.services)
-  alias(libs.plugins.protobuf)
+}
+
+val protocCompiler by configurations.creating
+val grpcCompiler by configurations.creating
+val controlPlaneProtoFile = layout.projectDirectory.file("src/main/proto/control_plane.proto")
+val controlPlaneProtoOutput = layout.buildDirectory.dir("generated/source/controlPlaneProto/main/java")
+
+val generateControlPlaneProto by tasks.registering(Exec::class) {
+  inputs.file(controlPlaneProtoFile)
+  outputs.dir(controlPlaneProtoOutput)
+  doFirst {
+    val protoc = protocCompiler.singleFile
+    val grpcPlugin = grpcCompiler.singleFile
+    check(protoc.setExecutable(true)) { "Unable to make protoc executable" }
+    check(grpcPlugin.setExecutable(true)) { "Unable to make gRPC protoc plugin executable" }
+    val output = controlPlaneProtoOutput.get().asFile
+    output.mkdirs()
+    commandLine(
+      protoc.absolutePath,
+      "--proto_path=${controlPlaneProtoFile.asFile.parentFile.absolutePath}",
+      "--java_out=${output.absolutePath}",
+      "--plugin=protoc-gen-grpc=${grpcPlugin.absolutePath}",
+      "--grpc_out=${output.absolutePath}",
+      controlPlaneProtoFile.asFile.absolutePath
+    )
+  }
 }
 
 android {
@@ -64,6 +89,7 @@ android {
     sourceCompatibility = JavaVersion.VERSION_11
     targetCompatibility = JavaVersion.VERSION_11
   }
+  sourceSets.getByName("main").java.srcDir(controlPlaneProtoOutput)
   buildFeatures {
     compose = true
     buildConfig = true
@@ -84,16 +110,13 @@ secrets {
 }
 
 googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
+tasks.named("preBuild").configure { dependsOn(generateControlPlaneProto) }
 
 // Some unused dependencies are commented out below instead of being removed.
 // This makes it easy to add them back in the future if needed.
-protobuf {
-  protoc { artifact = "com.google.protobuf:protoc:4.30.2" }
-  plugins { create("grpc") { artifact = "io.grpc:protoc-gen-grpc-java:1.70.0" } }
-  generateProtoTasks { all().configureEach { plugins { create("grpc") } } }
-}
-
 dependencies {
+  add(protocCompiler.name, "com.google.protobuf:protoc:4.30.2:linux-x86_64@exe")
+  add(grpcCompiler.name, "io.grpc:protoc-gen-grpc-java:1.70.0:linux-x86_64@exe")
   implementation(libs.androidx.security.crypto)
   implementation(libs.grpc.okhttp)
   implementation(libs.grpc.protobuf)
