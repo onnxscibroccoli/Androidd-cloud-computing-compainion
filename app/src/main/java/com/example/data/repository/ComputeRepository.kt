@@ -173,7 +173,7 @@ class ComputeRepository(
             roundTripLatencyMs = currentTel.roundTripLatencyMs,
             ociCpuPct = currentTel.ociCpuPct,
             ociMemoryMb = currentTel.ociMemoryMb,
-            localCpuPct = result.localCpuPct,
+            localCpuPct = if (result.localCpuMeasured) result.localCpuPct else -1f,
             throughputKbps = currentTel.networkThroughputKbps
           )
         )
