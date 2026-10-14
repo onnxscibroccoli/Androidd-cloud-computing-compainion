@@ -65,6 +65,13 @@ class ControlPlaneCredentialStore(context: Context) {
             val leaf = keyStore.getCertificate(identityAlias) as X509Certificate
             leaf.checkValidity()
             require(leaf.basicConstraints < 0) { "Client identity certificate must not be a CA certificate" }
+            require(leaf.extendedKeyUsage?.contains(CLIENT_AUTH_EKU) == true) {
+                "Client identity certificate must include the TLS clientAuth extended key usage"
+            }
+            val keyUsage = leaf.keyUsage
+            require(keyUsage == null || (keyUsage.isNotEmpty() && keyUsage[0])) {
+                "Client identity certificate must permit digital signatures"
+            }
 
             val factory = CertificateFactory.getInstance("X.509")
             val roots = factory.generateCertificates(ByteArrayInputStream(caBytes))
@@ -170,5 +177,6 @@ class ControlPlaneCredentialStore(context: Context) {
         private const val ROOT_CA_FILE = "control-plane-root-ca.pem"
         private const val MAX_IDENTITY_BYTES = 8 * 1024 * 1024
         private const val MAX_CA_BYTES = 1024 * 1024
+        private const val CLIENT_AUTH_EKU = "1.3.6.1.5.5.7.3.2"
     }
 }
