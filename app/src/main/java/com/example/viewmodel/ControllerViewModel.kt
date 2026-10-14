@@ -156,14 +156,13 @@ class ControllerViewModel(application: Application) : AndroidViewModel(applicati
     _snackbarMessage.value = "mTLS configuration updated."
   }
 
+  /**
+   * This action intentionally does not fabricate certificate metadata.
+   * A real client identity must be provisioned through Android Keystore or an approved
+   * certificate-enrollment flow before mTLS can be enabled.
+   */
   fun generateNewEphemeralCert() {
-    val randomId = (10..99).random()
-    val newFingerprint = (1..16).joinToString(":") { "%02X".format((0..255).random()) }
-    val updated = repository.mtlsConfig.value.copy(
-      clientCertSubject = "CN=android-controller-demo-$randomId, O=Prototype, OU=Demo",
-      clientCertFingerprint = newFingerprint
-    )
-    repository.updateMtlsConfig(updated)
-    _snackbarMessage.value = "Generated prototype client cert #$randomId"
+    _snackbarMessage.value =
+      "Client certificate enrollment is not configured. No certificate was generated; mTLS remains unavailable."
   }
 }
