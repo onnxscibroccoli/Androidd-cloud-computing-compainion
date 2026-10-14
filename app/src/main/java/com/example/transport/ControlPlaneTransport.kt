@@ -5,6 +5,10 @@ import android.os.Build
 import com.example.transport.proto.ControlPlaneGrpc
 import com.example.transport.proto.DeviceTelemetry
 import com.example.transport.proto.ExecutionCommand
+import com.example.transport.proto.ExecutionReceipt
+import com.example.transport.proto.HealthCheckRequest
+import com.example.transport.proto.HealthCheckResponse
+import com.example.transport.proto.SubmitExecutionRequest
 import io.grpc.ManagedChannel
 import io.grpc.Status
 import io.grpc.stub.StreamObserver
@@ -15,6 +19,7 @@ import java.security.KeyStore
 import java.security.SecureRandom
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
+import java.util.concurrent.TimeUnit
 import javax.net.ssl.KeyManager
 import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
@@ -81,6 +86,27 @@ class ControlPlaneTransport(
             .build()
         channel = built
         return built
+    }
+
+    /** A real authenticated RPC. A returned response proves the TLS/mTLS channel reached the service. */
+    fun healthCheck(clientVersion: String, timeoutSeconds: Long = 10): HealthCheckResponse {
+        require(clientVersion.isNotBlank()) { "Client version is required" }
+        require(timeoutSeconds in 1L..60L) { "Health-check deadline must be 1..60 seconds" }
+        val request = HealthCheckRequest.newBuilder().setClientVersion(clientVersion).build()
+        return ControlPlaneGrpc.newBlockingStub(connect())
+            .withDeadlineAfter(timeoutSeconds, TimeUnit.SECONDS)
+            .healthCheck(request)
+    }
+
+    /** Executes a request only through the authenticated mTLS gRPC service. */
+    fun submitExecution(request: SubmitExecutionRequest, timeoutSeconds: Long): ExecutionReceipt {
+        require(request.requestId.isNotBlank() && request.jobId.isNotBlank()) {
+            "Execution request and job IDs are required"
+        }
+        require(timeoutSeconds in 1L..900L) { "Execution deadline must be 1..900 seconds" }
+        return ControlPlaneGrpc.newBlockingStub(connect())
+            .withDeadlineAfter(timeoutSeconds, TimeUnit.SECONDS)
+            .submitExecution(request)
     }
 
     fun openDeviceSession(
