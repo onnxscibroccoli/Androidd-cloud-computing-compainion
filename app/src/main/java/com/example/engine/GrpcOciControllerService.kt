@@ -2,6 +2,7 @@ package com.example.engine
 
 import android.content.Context
 import com.example.BuildConfig
+import com.example.auth.OciOAuthManager
 import com.example.model.ComputeJob
 import com.example.transport.ControlPlaneCredentialStore
 import com.example.transport.proto.SubmitExecutionRequest
@@ -43,7 +44,8 @@ class GrpcOciControllerService(
             .setTitle(job.title.take(MAX_TITLE_LENGTH))
             .build()
 
-        val transport = credentials.createTransport(config.endpointHost, config.endpointPort)
+        val accessToken = OciOAuthManager(context).getValidAccessToken()
+        val transport = credentials.createTransport(config.endpointHost, config.endpointPort, accessToken)
         try {
             onProgress(0.05f)
             val receipt = transport.submitExecution(request, timeoutSeconds = EXECUTION_TIMEOUT_SECONDS)
