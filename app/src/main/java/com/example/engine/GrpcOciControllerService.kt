@@ -19,7 +19,8 @@ class GrpcOciControllerService(
     context: Context,
     private val streamManager: MtlsStreamManager
 ) : OciControllerService {
-    private val credentials = ControlPlaneCredentialStore(context.applicationContext)
+    private val appContext = context.applicationContext
+    private val credentials = ControlPlaneCredentialStore(appContext)
 
     override suspend fun submit(
         job: ComputeJob,
@@ -44,7 +45,7 @@ class GrpcOciControllerService(
             .setTitle(job.title.take(MAX_TITLE_LENGTH))
             .build()
 
-        val accessToken = OciOAuthManager(context).getValidAccessToken()
+        val accessToken = OciOAuthManager(appContext).getValidAccessToken()
         val transport = credentials.createTransport(config.endpointHost, config.endpointPort, accessToken)
         try {
             onProgress(0.05f)
