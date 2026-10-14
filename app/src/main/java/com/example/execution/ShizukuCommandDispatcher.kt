@@ -24,6 +24,7 @@ class ShizukuCommandDispatcher(
     private val appContext = context.applicationContext
     @Volatile private var engine: ShizukuExecutionEngine? = null
     @Volatile private var bound = false
+    @Volatile private var foregroundStarted = false
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
@@ -65,15 +66,19 @@ class ShizukuCommandDispatcher(
     fun stopBackgroundExecution() {
         close()
         appContext.stopService(Intent(appContext, ShizukuExecutionEngine::class.java))
+        foregroundStarted = false
     }
 
+    @Synchronized
     private fun startForegroundService() {
+        if (foregroundStarted) return
         val intent = Intent(appContext, ShizukuExecutionEngine::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             appContext.startForegroundService(intent)
         } else {
             appContext.startService(intent)
         }
+        foregroundStarted = true
     }
 
     suspend fun installRishBundle(
