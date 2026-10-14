@@ -1,5 +1,9 @@
 package com.example.engine
 
+import android.content.Context
+import com.example.BuildConfig
+import com.example.transport.ControlPlaneCredentialStore
+
 import com.example.model.CommandType
 import com.example.model.ComputeJob
 import com.example.model.ConnectionState
@@ -37,7 +41,7 @@ import kotlin.random.Random
  * Demo mode must never produce a real connection-success state (READY).
  * Only actual transport evidence from canonical controller integration can advance to READY.
  */
-class MtlsStreamManager {
+class MtlsStreamManager(private val appContext: Context? = null) {
 
   private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
@@ -110,7 +114,7 @@ class MtlsStreamManager {
           StreamEvent.StreamError(
             id = UUID.randomUUID().toString(),
             code = "UNCONFIGURED",
-            reason = "A valid endpoint host and TCP port are required."
+            reason = "A valid control-plane hostname and TCP port are required."
           )
         )
         return@launch
@@ -120,28 +124,79 @@ class MtlsStreamManager {
       _eventsFlow.emit(
         StreamEvent.Handshake(
           id = UUID.randomUUID().toString(),
-          message = "[TLS PROBE] Starting a real TLS server-certificate and hostname verification probe for ${config.endpointHost}:${config.endpointPort}.",
+          message = if (config.isMtlsEnforced) {
+            "[mTLS CONNECT] Starting an authenticated control-plane health RPC to ${config.endpointHost}:${config.endpointPort}."
+          } else {
+            "[TLS DIAGNOSTIC] Starting server-certificate and hostname verification only for ${config.endpointHost}:${config.endpointPort}."
+          },
           success = false
         )
       )
 
       if (config.isMtlsEnforced) {
-        _connectionState.value = ConnectionState.ERROR
-        val reason = "mTLS is required, but no client certificate/private-key provider is configured. No handshake was claimed and no OCI identity was authenticated."
-        _eventsFlow.emit(
-          StreamEvent.StreamError(
-            id = UUID.randomUUID().toString(),
-            code = "MTLS_CLIENT_IDENTITY_MISSING",
-            reason = reason
+        try {
+          val context = appContext ?: throw IllegalStateException(
+            "Application context is required for device-bound mTLS credentials"
           )
-        )
-        _eventsFlow.emit(
-          StreamEvent.Handshake(
-            id = UUID.randomUUID().toString(),
-            message = "[FAIL CLOSED] $reason",
-            success = false
+          val transport = ControlPlaneCredentialStore(context).createTransport(
+            config.endpointHost,
+            config.endpointPort
           )
-        )
+          try {
+            val health = withContext(Dispatchers.IO) {
+              transport.healthCheck(BuildConfig.VERSION_NAME, timeoutSeconds = 10)
+            }
+            if (health.serverId.isBlank() || health.serverTimeEpochMs <= 0L) {
+              throw SecurityException("Authenticated health response omitted server identity or time evidence")
+            }
+            _connectionState.value = ConnectionState.TLS_AUTHENTICATED
+            _eventsFlow.emit(
+              StreamEvent.Handshake(
+                id = UUID.randomUUID().toString(),
+                message = "[mTLS AUTHENTICATED] TLS/mTLS RPC completed with trusted server '${health.serverId}'.",
+                success = true
+              )
+            )
+            if (health.controlPlaneReady && health.deviceReady) {
+              _connectionState.value = ConnectionState.READY
+              _eventsFlow.emit(
+                StreamEvent.Handshake(
+                  id = UUID.randomUUID().toString(),
+                  message = "[CONTROL PLANE READY] Authenticated server confirmed both control-plane and device readiness.",
+                  success = true
+                )
+              )
+            } else {
+              _connectionState.value = ConnectionState.WAITING_FOR_DEVICE_READINESS
+              _eventsFlow.emit(
+                StreamEvent.Handshake(
+                  id = UUID.randomUUID().toString(),
+                  message = "[READINESS PENDING] mTLS is authenticated, but the server has not confirmed both control-plane and device readiness.",
+                  success = false
+                )
+              )
+            }
+          } finally {
+            transport.close()
+          }
+        } catch (e: Exception) {
+          _connectionState.value = ConnectionState.ERROR
+          val reason = "${e.javaClass.simpleName}: ${e.message ?: "mTLS health RPC failed"}"
+          _eventsFlow.emit(
+            StreamEvent.StreamError(
+              id = UUID.randomUUID().toString(),
+              code = "MTLS_HEALTH_CHECK_FAILED",
+              reason = reason
+            )
+          )
+          _eventsFlow.emit(
+            StreamEvent.Handshake(
+              id = UUID.randomUUID().toString(),
+              message = "[mTLS FAILURE] ${reason}",
+              success = false
+            )
+          )
+        }
         return@launch
       }
 
@@ -166,16 +221,8 @@ class MtlsStreamManager {
         _eventsFlow.emit(
           StreamEvent.Handshake(
             id = UUID.randomUUID().toString(),
-            message = "[TLS SERVER VERIFIED] Real TLS handshake succeeded. Protocol=${negotiated.first}; cipher=${negotiated.second}. Client mTLS identity was not used.",
+            message = "[TLS SERVER VERIFIED ONLY] Real TLS handshake succeeded. Protocol=${negotiated.first}; cipher=${negotiated.second}. No client identity was presented and no OCI device authentication occurred.",
             success = true
-          )
-        )
-        _connectionState.value = ConnectionState.WAITING_FOR_DEVICE_READINESS
-        _eventsFlow.emit(
-          StreamEvent.Handshake(
-            id = UUID.randomUUID().toString(),
-            message = "[GATE PAUSE] Server TLS is verified, but no OCI controller protocol or device-readiness response has been received. READY is not asserted.",
-            success = false
           )
         )
       } catch (e: Exception) {
@@ -191,7 +238,7 @@ class MtlsStreamManager {
         _eventsFlow.emit(
           StreamEvent.Handshake(
             id = UUID.randomUUID().toString(),
-            message = "[TLS FAILURE] $reason",
+            message = "[TLS FAILURE] ${reason}",
             success = false
           )
         )
