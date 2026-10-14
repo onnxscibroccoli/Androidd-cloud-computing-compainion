@@ -63,6 +63,7 @@ data class ComputeJob(
   val resultSummary: String = "",
   val speedupRatio: Float = 1.0f,
   val localCpuPct: Float = 0f,
+  val localCpuMeasured: Boolean = false,
   val cloudCpuPct: Float = 0f,
   val timestamp: Long = System.currentTimeMillis(),
   val isSimulatedCloud: Boolean = false,
