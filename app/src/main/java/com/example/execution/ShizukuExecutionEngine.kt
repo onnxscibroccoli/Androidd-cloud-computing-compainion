@@ -257,7 +257,7 @@ class ShizukuExecutionEngine : Service() {
 
     private fun validateCommandPolicy(executable: String, arguments: List<String>) {
         when (executable) {
-            "pm" -> require(arguments.firstOrNull() in READ_ONLY_PM_VERBS) {
+            "pm" -> require(arguments.firstOrNull()?.let { it in READ_ONLY_PM_VERBS } == true) {
                 "Only read-only pm commands are allowed"
             }
             "cmd" -> require(
@@ -265,7 +265,7 @@ class ShizukuExecutionEngine : Service() {
                     arguments[0] == "package" &&
                     arguments[1] in READ_ONLY_PACKAGE_COMMANDS
             ) { "Only read-only package queries are allowed through cmd" }
-            "settings" -> require(arguments.firstOrNull() in setOf("get", "list")) {
+            "settings" -> require(arguments.firstOrNull()?.let { it == "get" || it == "list" } == true) {
                 "Only read-only settings commands are allowed"
             }
             "dumpsys" -> require(arguments.size == 1 && arguments[0] in READ_ONLY_DUMPSYS_SERVICES) {
@@ -282,6 +282,7 @@ class ShizukuExecutionEngine : Service() {
             }
             "toybox" -> {
                 val applet = arguments.firstOrNull()
+                    ?: throw IllegalArgumentException("A toybox applet is required")
                 require(applet in SAFE_TOYBOX_APPLETS) { "This toybox applet is not allowed" }
                 if (applet in setOf("cat", "stat", "du")) {
                     require(arguments.drop(1).isNotEmpty() && arguments.drop(1).all { isSafeReadPath(it) }) {
