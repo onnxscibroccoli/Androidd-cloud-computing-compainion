@@ -306,7 +306,6 @@ class ShizukuExecutionEngine : Service() {
     }
 
     private fun shellQuote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
-    private fun shellQuote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
 
     private fun readLimitedBytes(input: InputStream, limit: Int): ByteArray {
         val output = java.io.ByteArrayOutputStream()
