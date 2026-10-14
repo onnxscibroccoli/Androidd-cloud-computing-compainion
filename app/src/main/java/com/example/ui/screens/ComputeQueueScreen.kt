@@ -483,13 +483,17 @@ private fun JobDetailCard(
           }
           MetricBadge(
             label = "Device CPU",
-            value = if (job.localCpuPct < 0f) "N/A" else String.format(Locale.US, "%.0f%%", job.localCpuPct),
+            value = if (!job.localCpuMeasured || job.localCpuPct < 0f) "N/A" else String.format(Locale.US, "%.0f%%", job.localCpuPct),
             color = MaterialTheme.colorScheme.onSurfaceVariant
           )
           if (job.target != ExecutionTarget.LOCAL_DEVICE) {
             MetricBadge(
               label = "Worker CPU",
-              value = if (job.cloudCpuPct < 0f) "N/A" else String.format(Locale.US, "%.0f%%", job.cloudCpuPct),
+              value = when {
+                job.isSimulatedCloud -> "DEMO"
+                job.cloudCpuPct < 0f -> "N/A"
+                else -> String.format(Locale.US, "%.0f%%", job.cloudCpuPct)
+              },
               color = MaterialTheme.colorScheme.onSurfaceVariant
             )
           }
