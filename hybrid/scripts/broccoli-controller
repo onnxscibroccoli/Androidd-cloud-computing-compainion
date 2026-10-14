@@ -1,0 +1,37 @@
+#!/usr/bin/env python3
+"""Termux CLI. Reuses the canonical Broccoli rish wrapper; does not reconfigure it."""
+import argparse
+import json
+import os
+from pathlib import Path
+import shlex
+import subprocess
+import time
+import uuid
+
+p=argparse.ArgumentParser()
+p.add_argument('method',choices=['init','status','submit','result'])
+p.add_argument('value',nargs='?')
+p.add_argument('--arguments',default='{}')
+p.add_argument('--id',default=None)
+p.add_argument('--raw-rish',action='store_true',help='Use rish -c directly instead of the canonical wrapper command argument')
+p.add_argument('--rish',default=str(Path.home()/'broccoli-core/bin/broccoli-rish'))
+a=p.parse_args()
+if not Path(a.rish).is_file(): p.error('Canonical rish wrapper missing; specify --rish with the verified path')
+prefix=[a.rish,'-c'] if a.raw_rish else [a.rish]
+proof=subprocess.run(prefix+['id -u'],text=True,capture_output=True,timeout=15)
+if proof.returncode or proof.stdout.strip()!='2000':
+    raise SystemExit('BLOCKED: start/authorize Shizuku or Shevery and initialize exported rish after boot. No root fallback.')
+command=['content','call','--uri','content://org.broccoli.controller.shell','--method',a.method]
+if a.method=='submit':
+    if not a.value: p.error('submit requires operation')
+    job={'id':a.id or str(uuid.uuid4()),'operation':a.value,'arguments':json.loads(a.arguments),'deadline_ms':int(time.time()*1000)+60000}
+    command+=['--arg',json.dumps(job,separators=(',',':'))]
+elif a.method=='result':
+    if not a.value: p.error('result requires job UUID')
+    uuid.UUID(a.value)
+    command+=['--arg',a.value]
+result=subprocess.run(prefix+[shlex.join(command)],text=True,capture_output=True,timeout=20)
+print(result.stdout,end='')
+if result.returncode or 'error=' in result.stdout:
+    raise SystemExit(result.returncode or 1)

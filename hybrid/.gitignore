@@ -1,0 +1,11 @@
+android/.gradle/
+android/local.properties
+android/**/build/
+__pycache__/
+.pytest_cache/
+*.pyc
+.venv/
+*.db*
+*.p12
+*.key
+*-enrollment.json

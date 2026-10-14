@@ -1,0 +1,53 @@
+diff --git a/hybrid/android/app/src/main/aidl/org/broccoli/controller/IShell.aidl b/hybrid/android/app/src/main/aidl/org/broccoli/controller/IShell.aidl
+index a698898..1e327fa 100644
+--- a/hybrid/android/app/src/main/aidl/org/broccoli/controller/IShell.aidl
++++ b/hybrid/android/app/src/main/aidl/org/broccoli/controller/IShell.aidl
+@@ -1,6 +1,6 @@
+ package org.broccoli.controller;
+ interface IShell {
+-    String execute(String operation, String arguments);
+-    int uid();
+-    void destroy();
++    String execute(String operation, String arguments) = 1;
++    int uid() = 2;
++    void destroy() = 16777114;
+ }
+diff --git a/hybrid/android/app/src/main/java/org/broccoli/controller/ControllerService.java b/hybrid/android/app/src/main/java/org/broccoli/controller/ControllerService.java
+index d4f2210..236df67 100644
+--- a/hybrid/android/app/src/main/java/org/broccoli/controller/ControllerService.java
++++ b/hybrid/android/app/src/main/java/org/broccoli/controller/ControllerService.java
+@@ -55,7 +55,7 @@ public class ControllerService extends Service {
+         if(closed || shell==null || shell.uid()!=2000 || !Shizuku.pingBinder() || Shizuku.checkSelfPermission()!=PackageManager.PERMISSION_GRANTED) throw new SecurityException("Start and authorize Shizuku/Shevery, then retry init");
+         initialized=true;message="READY";return "READY boot="+boot;
+     }
+-    boolean ready() {return !closed && initialized && shell!=null && Shizuku.pingBinder() && Shizuku.checkSelfPermission()==PackageManager.PERMISSION_GRANTED;}
++    boolean ready() {try {return !closed && initialized && shell!=null && Shizuku.pingBinder() && Shizuku.checkSelfPermission()==PackageManager.PERMISSION_GRANTED;} catch(Exception e) {initialized=false;return false;}}
+     String status() {return message+"; boot="+boot+"; ready="+ready();}
+     String jobStatus(String id) {return journal.status(id);}
+     void dispatch(Command command) {
+diff --git a/hybrid/android/app/src/main/java/org/broccoli/controller/Enrollment.java b/hybrid/android/app/src/main/java/org/broccoli/controller/Enrollment.java
+index 98e3a8a..6ef1d4f 100644
+--- a/hybrid/android/app/src/main/java/org/broccoli/controller/Enrollment.java
++++ b/hybrid/android/app/src/main/java/org/broccoli/controller/Enrollment.java
+@@ -30,7 +30,7 @@ public final class Enrollment {
+         KeyStore android=KeyStore.getInstance("AndroidKeyStore");android.load(null);
+         android.setKeyEntry("broccoli-client",privateKey,null,chain);
+         try(FileOutputStream out=context.openFileOutput("ca.der",Context.MODE_PRIVATE)) { out.write(ca.getEncoded()); }
+-        context.getSharedPreferences("controller",0).edit().putString("host",host).putString("device",device).putInt("port",port).commit();
++        context.getSharedPreferences("controller",0).edit().putString("enrollment",java.util.UUID.randomUUID().toString()).putString("host",host).putString("device",device).putInt("port",port).commit();
+     }
+     public static SSLSocketFactory sockets(Context c) throws Exception {
+         KeyStore ks=KeyStore.getInstance("AndroidKeyStore");ks.load(null);
+diff --git a/hybrid/android/app/src/main/java/org/broccoli/controller/Journal.java b/hybrid/android/app/src/main/java/org/broccoli/controller/Journal.java
+index 5dc628d..4d733a3 100644
+--- a/hybrid/android/app/src/main/java/org/broccoli/controller/Journal.java
++++ b/hybrid/android/app/src/main/java/org/broccoli/controller/Journal.java
+@@ -6,7 +6,7 @@ import org.broccoli.controller.proto.Result;
+ import java.util.*;
+ 
+ public class Journal extends SQLiteOpenHelper {
+-    public Journal(Context c) { super(c,"jobs.db",null,1); getWritableDatabase().execSQL("UPDATE jobs SET state='UNKNOWN',output='Controller restarted during execution; reconcile before retry' WHERE state='RUNNING'"); }
++    public Journal(Context c) { super(c,"jobs-"+c.getSharedPreferences("controller",0).getString("enrollment","unconfigured")+".db",null,1); getWritableDatabase().execSQL("UPDATE jobs SET state='UNKNOWN',output='Controller restarted during execution; reconcile before retry' WHERE state='RUNNING'"); }
+     @Override public void onCreate(SQLiteDatabase db) { db.execSQL("CREATE TABLE jobs(id TEXT PRIMARY KEY,payload TEXT NOT NULL,state TEXT NOT NULL,output TEXT NOT NULL,acked INTEGER NOT NULL DEFAULT 0)"); }
+     @Override public void onUpgrade(SQLiteDatabase db,int oldVersion,int newVersion) { throw new IllegalStateException("Unsupported journal migration"); }
+     public synchronized boolean claim(String id,String payload) {

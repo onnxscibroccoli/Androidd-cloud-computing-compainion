@@ -1,0 +1,14 @@
+{
+  "grasshopper": {
+    "device_id": "0852e6f4-2507-4d0f-9d62-f6eda8cdd169",
+    "os": "Oracle Linux 9.8",
+    "package": "@wonderwhy-er/desktop-commander@0.2.52",
+    "mode": "remote"
+  },
+  "kali": {
+    "device_id": "034eadfb-528c-4b19-9bdc-2c8a82a191e9",
+    "os": "Kali 2026.3",
+    "package": "@wonderwhy-er/desktop-commander@0.2.52",
+    "mode": "remote"
+  }
+}

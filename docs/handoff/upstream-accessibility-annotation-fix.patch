@@ -1,0 +1,30 @@
+diff --git a/runtime/drivers/accessibility/hidden_backend.py b/runtime/drivers/accessibility/hidden_backend.py
+index d6c439c..f35078a 100644
+--- a/runtime/drivers/accessibility/hidden_backend.py
++++ b/runtime/drivers/accessibility/hidden_backend.py
+@@ -19,8 +19,8 @@ class HiddenBackend(AccessibilityBackend):
+     def subscribe(self, callback):
+         pass
+ 
+-    def health(self) -> Dict:
++    def health(self) -> dict:
+         return {"status": "healthy", "latency_ms": 45, "backend": "hidden"}
+ 
+-    def capabilities(self) -> Dict:
++    def capabilities(self) -> dict:
+         return {"supports_incremental": True, "supports_notifications": True, "supports_windows": True, "supports_hidden_api": True}
+diff --git a/runtime/drivers/accessibility/public_backend.py b/runtime/drivers/accessibility/public_backend.py
+index 92ee7f0..f18489d 100644
+--- a/runtime/drivers/accessibility/public_backend.py
++++ b/runtime/drivers/accessibility/public_backend.py
+@@ -25,8 +25,8 @@ class PublicBackend(AccessibilityBackend):
+     def subscribe(self, callback):
+         pass  # Event loop handled by manager
+ 
+-    def health(self) -> Dict:
++    def health(self) -> dict:
+         return {"status": "healthy", "latency_ms": 120, "backend": "public"}
+ 
+-    def capabilities(self) -> Dict:
++    def capabilities(self) -> dict:
+         return {"supports_incremental": True, "supports_notifications": True, "supports_windows": True, "supports_hidden_api": False}

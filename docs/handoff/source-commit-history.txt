@@ -1,0 +1,4 @@
+4a7e18009784e1f646b7c23cc18cb300beaab5d5 fix: verify live rish invocation and current Android SDK setup
+e7f6c7328a8f7b528025bec142552e7737bdb4af feat: add OCI deployment, provider runners and harden reconnect semantics
+2756adf1fcc9c2581743221ccdf162da5cf49e8d test: exercise actual mTLS gateway and bidirectional gRPC
+58a7c801b88962f6b3653c2571e5f864227f0993 feat: implement hybrid controller execution and authenticated control plane
