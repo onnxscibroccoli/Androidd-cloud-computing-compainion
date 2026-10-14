@@ -243,6 +243,7 @@ class MtlsStreamManager(private val appContext: Context? = null) {
             timestamp = initialTelemetry.observedAtEpochMs,
             roundTripLatencyMs = measuredRtt,
             localCpuPct = initialTelemetry.cpuLoadPercent.toFloat(),
+            localCpuMeasured = initialTelemetry.attributesMap["cpu_load_measured"] == "true",
             localMemoryMb = initialTelemetry.availableMemoryBytes / (1024L * 1024L),
             packetsDispatched = _currentTelemetry.value.packetsDispatched + 1L,
             streamFps = 1,
@@ -456,6 +457,7 @@ class MtlsStreamManager(private val appContext: Context? = null) {
           _currentTelemetry.value = _currentTelemetry.value.copy(
             timestamp = telemetry.observedAtEpochMs,
             localCpuPct = telemetry.cpuLoadPercent.toFloat(),
+            localCpuMeasured = telemetry.attributesMap["cpu_load_measured"] == "true",
             localMemoryMb = telemetry.availableMemoryBytes / (1024L * 1024L),
             packetsDispatched = _currentTelemetry.value.packetsDispatched + 1L,
             streamFps = 1,
@@ -636,7 +638,8 @@ class MtlsStreamManager(private val appContext: Context? = null) {
       durationMs = totalDuration,
       operationsCount = job.complexityUnits.toLong(),
       summary = summary,
-      localCpuPct = 2.0f
+      localCpuPct = 0f,
+      localCpuMeasured = false
     )
   }
 }
