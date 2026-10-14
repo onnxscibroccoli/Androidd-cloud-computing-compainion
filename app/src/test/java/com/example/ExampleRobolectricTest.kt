@@ -6,16 +6,18 @@ import com.example.model.ConnectionState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlinx.coroutines.runBlocking
 
 class ExampleUnitTest {
     @Test
-    fun localBenchmarksReturnMeasuredOrExplicitlyUnavailableCpuMetrics() {
+    fun localBenchmarksReturnMeasuredOrExplicitlyUnavailableCpuMetrics() = runBlocking {
+        val noProgress: suspend (Float) -> Unit = {}
         val results = listOf(
-            LocalComputeEngine.runMatrixBenchmark(16),
-            LocalComputeEngine.runHashChain(100),
-            LocalComputeEngine.runMonteCarlo(1_000),
-            LocalComputeEngine.runPrimeSieve(100),
-            LocalComputeEngine.runSensorSynthesis(100)
+            LocalComputeEngine.executeMatrixMultiply(64, noProgress),
+            LocalComputeEngine.executeCryptoHashChain(100, noProgress),
+            LocalComputeEngine.executeMonteCarloPi(50_000, noProgress),
+            LocalComputeEngine.executePrimeSieve(10_000, noProgress),
+            LocalComputeEngine.executeSensorTelemetrySynthesis(1_000, noProgress)
         )
 
         results.forEach { result ->
