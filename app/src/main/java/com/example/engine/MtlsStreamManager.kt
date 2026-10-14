@@ -1,8 +1,18 @@
 package com.example.engine
 
 import android.content.Context
+import android.app.ActivityManager
+import android.net.TrafficStats
+import android.provider.Settings
 import com.example.BuildConfig
 import com.example.transport.ControlPlaneCredentialStore
+import com.example.transport.ControlPlaneTransport
+import com.example.transport.proto.CommandExecutionResult
+import com.example.transport.proto.DeviceTelemetry
+import com.example.transport.proto.ExecutionCommand
+import io.grpc.stub.StreamObserver
+import java.io.File
+import java.security.MessageDigest
 
 import com.example.model.CommandType
 import com.example.model.ComputeJob
@@ -68,7 +78,13 @@ class MtlsStreamManager(private val appContext: Context? = null) {
   val eventsFlow: SharedFlow<StreamEvent> = _eventsFlow.asSharedFlow()
 
   private var demoStreamingJob: Job? = null
+  private var liveTelemetryJob: Job? = null
+  private var liveTransport: ControlPlaneTransport? = null
+  @Volatile private var telemetryObserver: StreamObserver<DeviceTelemetry>? = null
+  @Volatile private var executionCommandHandler: ((ExecutionCommand) -> Unit)? = null
   private var sequenceNumber: Long = 0L
+  @Volatile private var previousCpuCounters: CpuCounters? = null
+  @Volatile private var cachedDeviceId: String? = null
 
   init {
     // Initial state is cleanly DISCONNECTED, awaiting user action or configuration
