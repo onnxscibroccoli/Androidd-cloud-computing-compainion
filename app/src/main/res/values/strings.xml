@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">OCI Cloud Controller</string>
+    <string name="tab_dashboard">Dashboard</string>
+    <string name="tab_tasks">Compute</string>
+    <string name="tab_telemetry">Telemetry</string>
+    <string name="tab_security">mTLS &amp; OCI</string>
+</resources>

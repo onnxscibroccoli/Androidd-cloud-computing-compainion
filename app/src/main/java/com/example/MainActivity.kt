@@ -1,0 +1,199 @@
+package com.example
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.ui.screens.ComputeQueueScreen
+import com.example.ui.screens.DashboardScreen
+import com.example.ui.screens.MtlsSettingsScreen
+import com.example.ui.screens.TelemetryScreen
+import com.example.ui.theme.MyApplicationTheme
+import com.example.viewmodel.ControllerViewModel
+
+class MainActivity : ComponentActivity() {
+
+  private val viewModel: ControllerViewModel by viewModels()
+
+  override fun onCreate(savedInstanceState: Bundle?) {
+    super.onCreate(savedInstanceState)
+    enableEdgeToEdge()
+
+    setContent {
+      MyApplicationTheme {
+        MainControllerApp(viewModel = viewModel)
+      }
+    }
+  }
+}
+
+@Composable
+fun MainControllerApp(viewModel: ControllerViewModel) {
+  val activeTab by viewModel.activeTab.collectAsStateWithLifecycle()
+  val connectionState by viewModel.connectionState.collectAsStateWithLifecycle()
+  val telemetry by viewModel.currentTelemetry.collectAsStateWithLifecycle()
+  val mtlsConfig by viewModel.mtlsConfig.collectAsStateWithLifecycle()
+  val jobs by viewModel.allJobs.collectAsStateWithLifecycle()
+  val events by viewModel.streamEventsList.collectAsStateWithLifecycle()
+  val isDemoActive by viewModel.isDemoTelemetryActive.collectAsStateWithLifecycle()
+  val snackbarMessage by viewModel.snackbarMessage.collectAsStateWithLifecycle()
+
+  val snackbarHostState = remember { SnackbarHostState() }
+
+  LaunchedEffect(snackbarMessage) {
+    snackbarMessage?.let { msg ->
+      snackbarHostState.showSnackbar(msg)
+      viewModel.clearSnackbar()
+    }
+  }
+
+  // Handle back navigation: if not on Dashboard, return to Dashboard
+  BackHandler(enabled = activeTab != 0) {
+    viewModel.setTab(0)
+  }
+
+  Scaffold(
+    modifier = Modifier.fillMaxSize(),
+    snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+    bottomBar = {
+      NavigationBar(
+        modifier = Modifier
+          .windowInsetsPadding(WindowInsets.navigationBars)
+          .testTag("main_navigation_bar"),
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 3.dp
+      ) {
+        NavigationBarItem(
+          selected = activeTab == 0,
+          onClick = { viewModel.setTab(0) },
+          icon = { Icon(Icons.Default.Dashboard, contentDescription = "Dashboard") },
+          label = { Text(stringResource(R.string.tab_dashboard), fontSize = 11.sp, fontWeight = if (activeTab == 0) FontWeight.Bold else FontWeight.Normal) },
+          colors = NavigationBarItemDefaults.colors(
+            indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+            selectedIconColor = MaterialTheme.colorScheme.primary,
+            selectedTextColor = MaterialTheme.colorScheme.primary
+          ),
+          modifier = Modifier.testTag("nav_tab_dashboard")
+        )
+        NavigationBarItem(
+          selected = activeTab == 1,
+          onClick = { viewModel.setTab(1) },
+          icon = { Icon(Icons.Default.Bolt, contentDescription = "Compute") },
+          label = { Text(stringResource(R.string.tab_tasks), fontSize = 11.sp, fontWeight = if (activeTab == 1) FontWeight.Bold else FontWeight.Normal) },
+          colors = NavigationBarItemDefaults.colors(
+            indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+            selectedIconColor = MaterialTheme.colorScheme.primary,
+            selectedTextColor = MaterialTheme.colorScheme.primary
+          ),
+          modifier = Modifier.testTag("nav_tab_compute")
+        )
+        NavigationBarItem(
+          selected = activeTab == 2,
+          onClick = { viewModel.setTab(2) },
+          icon = { Icon(Icons.Default.Speed, contentDescription = "Telemetry") },
+          label = { Text(stringResource(R.string.tab_telemetry), fontSize = 11.sp, fontWeight = if (activeTab == 2) FontWeight.Bold else FontWeight.Normal) },
+          colors = NavigationBarItemDefaults.colors(
+            indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+            selectedIconColor = MaterialTheme.colorScheme.primary,
+            selectedTextColor = MaterialTheme.colorScheme.primary
+          ),
+          modifier = Modifier.testTag("nav_tab_telemetry")
+        )
+        NavigationBarItem(
+          selected = activeTab == 3,
+          onClick = { viewModel.setTab(3) },
+          icon = { Icon(Icons.Default.Lock, contentDescription = "mTLS") },
+          label = { Text(stringResource(R.string.tab_security), fontSize = 11.sp, fontWeight = if (activeTab == 3) FontWeight.Bold else FontWeight.Normal) },
+          colors = NavigationBarItemDefaults.colors(
+            indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+            selectedIconColor = MaterialTheme.colorScheme.primary,
+            selectedTextColor = MaterialTheme.colorScheme.primary
+          ),
+          modifier = Modifier.testTag("nav_tab_security")
+        )
+      }
+    }
+  ) { innerPadding ->
+    Box(
+      modifier = Modifier
+        .fillMaxSize()
+        .padding(innerPadding)
+    ) {
+      when (activeTab) {
+        0 -> DashboardScreen(
+          connectionState = connectionState,
+          telemetry = telemetry,
+          mtlsConfig = mtlsConfig,
+          events = events,
+          jobs = jobs,
+          onDispatchPreset = { algo, target -> viewModel.dispatchPreset(algo, target) },
+          onNavigateToTasks = { viewModel.setTab(1) },
+          onTestHandshake = { viewModel.attemptTlsHandshake() }
+        )
+
+        1 -> ComputeQueueScreen(
+          jobs = jobs,
+          onSubmitJob = { title, algo, target, prio, units ->
+            viewModel.submitNewJob(title, algo, target, prio, units)
+          },
+          onCancelJob = { id -> viewModel.cancelJob(id) },
+          onDeleteJob = { id -> viewModel.deleteJob(id) },
+          onClearAll = { viewModel.clearAllHistory() }
+        )
+
+        2 -> TelemetryScreen(
+          connectionState = connectionState,
+          telemetry = telemetry,
+          events = events,
+          isDemoActive = isDemoActive,
+          onToggleDemo = { viewModel.toggleDemoTelemetry(it) }
+        )
+
+        3 -> MtlsSettingsScreen(
+          connectionState = connectionState,
+          config = mtlsConfig,
+          onUpdateConfig = { host, port, latency, keepalive, mtls ->
+            viewModel.updateMtlsConfig(host, port, latency, keepalive, mtls)
+          },
+          onGenerateNewCert = { viewModel.generateNewEphemeralCert() },
+          onAttemptHandshake = { viewModel.attemptTlsHandshake() },
+          onDisconnect = { viewModel.disconnectStream() },
+          onClearAll = { viewModel.clearAllHistory() }
+        )
+      }
+    }
+  }
+}
