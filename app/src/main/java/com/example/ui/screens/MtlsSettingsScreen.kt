@@ -129,7 +129,7 @@ fun MtlsSettingsScreen(
           Text(text = "Transport Handshake Diagnostic", fontSize = 14.sp, fontWeight = FontWeight.Bold)
           Spacer(modifier = Modifier.height(4.dp))
           Text(
-            text = "Runs a real server-certificate TLS probe only when mTLS is disabled. This reports TLS_SERVER_VERIFIED, never mutual authentication. mTLS fails closed until a real client identity and trusted CA are provisioned.",
+            text = "Runs a real mTLS HealthCheck RPC and opens the persistent DeviceSession stream only when the authenticated server confirms readiness. With mTLS disabled, only server certificate/hostname verification occurs and the state is TLS_SERVER_VERIFIED, never mutual authentication.",
             fontSize = 11.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant
           )
