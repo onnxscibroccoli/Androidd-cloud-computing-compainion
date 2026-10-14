@@ -52,11 +52,19 @@ jobs:
         run: |
           set -euo pipefail
           if [[ ! -x ./gradlew || ! -s gradle/wrapper/gradle-wrapper.jar ]]; then
-            gradle wrapper --gradle-version 9.3.1 --distribution-type bin
+            TMP_WRAPPER="$RUNNER_TEMP/wrapper-project"
+            mkdir -p "$TMP_WRAPPER" gradle/wrapper
+            printf 'rootProject.name = "wrapper-bootstrap"\n' > "$TMP_WRAPPER/settings.gradle"
+            : > "$TMP_WRAPPER/build.gradle"
+            gradle -p "$TMP_WRAPPER" --no-configuration-cache wrapper --gradle-version 9.3.1 --distribution-type bin
+            cp "$TMP_WRAPPER/gradlew" ./gradlew
+            cp "$TMP_WRAPPER/gradlew.bat" ./gradlew.bat
+            cp "$TMP_WRAPPER/gradle/wrapper/gradle-wrapper.jar" gradle/wrapper/gradle-wrapper.jar
+            cp "$TMP_WRAPPER/gradle/wrapper/gradle-wrapper.properties" gradle/wrapper/gradle-wrapper.properties
           fi
           chmod +x ./gradlew
           test -s gradle/wrapper/gradle-wrapper.jar
-          ./gradlew --version
+          ./gradlew --no-configuration-cache --version
 
       - name: Create ephemeral debug signing key
         run: |
@@ -124,11 +132,19 @@ jobs:
         run: |
           set -euo pipefail
           if [[ ! -x ./gradlew || ! -s gradle/wrapper/gradle-wrapper.jar ]]; then
-            gradle wrapper --gradle-version 9.3.1 --distribution-type bin
+            TMP_WRAPPER="$RUNNER_TEMP/wrapper-project"
+            mkdir -p "$TMP_WRAPPER" gradle/wrapper
+            printf 'rootProject.name = "wrapper-bootstrap"\n' > "$TMP_WRAPPER/settings.gradle"
+            : > "$TMP_WRAPPER/build.gradle"
+            gradle -p "$TMP_WRAPPER" --no-configuration-cache wrapper --gradle-version 9.3.1 --distribution-type bin
+            cp "$TMP_WRAPPER/gradlew" ./gradlew
+            cp "$TMP_WRAPPER/gradlew.bat" ./gradlew.bat
+            cp "$TMP_WRAPPER/gradle/wrapper/gradle-wrapper.jar" gradle/wrapper/gradle-wrapper.jar
+            cp "$TMP_WRAPPER/gradle/wrapper/gradle-wrapper.properties" gradle/wrapper/gradle-wrapper.properties
           fi
           chmod +x ./gradlew
           test -s gradle/wrapper/gradle-wrapper.jar
-          ./gradlew --version
+          ./gradlew --no-configuration-cache --version
 
       - name: Decode production signing keystore
         env:
