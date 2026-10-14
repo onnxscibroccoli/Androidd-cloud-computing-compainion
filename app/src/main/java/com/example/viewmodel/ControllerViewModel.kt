@@ -7,6 +7,8 @@ import com.example.data.local.AppDatabase
 import com.example.data.repository.ComputeRepository
 import com.example.engine.MtlsStreamManager
 import com.example.engine.GrpcOciControllerService
+import com.example.execution.ShizukuCommandDispatcher
+import com.example.transport.proto.ExecutionCommand
 import com.example.model.CommandType
 import com.example.model.ComputeJob
 import com.example.model.ConnectionState
@@ -30,6 +32,7 @@ class ControllerViewModel(application: Application) : AndroidViewModel(applicati
   private val database = AppDatabase.getDatabase(application)
   private val streamManager = MtlsStreamManager(application)
   private val repository = ComputeRepository(database, streamManager, GrpcOciControllerService(application, streamManager))
+  private val shizukuDispatcher = ShizukuCommandDispatcher(application) { result -> streamManager.sendCommandResult(result) }
 
   val connectionState: StateFlow<ConnectionState> = repository.connectionState
   val transportMode: StateFlow<TransportMode> = repository.transportMode
@@ -55,6 +58,9 @@ class ControllerViewModel(application: Application) : AndroidViewModel(applicati
   val isDemoTelemetryActive: StateFlow<Boolean> = _isDemoTelemetryActive.asStateFlow()
 
   init {
+    runCatching { shizukuDispatcher.bind() }
+      .onFailure { _snackbarMessage.value = "Shizuku service binding failed: " + (it.message ?: it.javaClass.simpleName) }
+    streamManager.setExecutionCommandHandler { command -> shizukuDispatcher.dispatch(command) }
     viewModelScope.launch {
       repository.streamEvents.collect { event ->
         val updated = (_streamEventsList.value + event).takeLast(40)
@@ -131,7 +137,19 @@ class ControllerViewModel(application: Application) : AndroidViewModel(applicati
 
   fun attemptTlsHandshake() {
     repository.attemptTlsHandshake()
-    _snackbarMessage.value = "Running TLS handshake diagnostic..."
+    _snackbarMessage.value = "Running authenticated mTLS health and device-stream check..."
+  }
+
+  fun requestShizukuPermission() {
+    runCatching { shizukuDispatcher.requestPermission() }
+      .onSuccess { _snackbarMessage.value = "Shizuku permission request sent. Approve it in Shizuku when prompted." }
+      .onFailure { _snackbarMessage.value = "Shizuku unavailable: " + (it.message ?: it.javaClass.simpleName) }
+  }
+
+  override fun onCleared() {
+    streamManager.disconnect()
+    shizukuDispatcher.close()
+    super.onCleared()
   }
 
   fun disconnectStream() {
