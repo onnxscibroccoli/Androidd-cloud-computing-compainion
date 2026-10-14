@@ -12,7 +12,7 @@ The repository secrets supplied so far do not include a per-device client certif
 
 ## Shizuku/Rish
 
-The service waits for Shizuku binder availability and the user's explicit permission. It requires a trusted Rish launcher installed in app-private no-backup storage, passes RISH_PRESERVE_ENV=1, accepts only an allowlisted executable plus a bounded argument array, captures stdout and stderr concurrently, and enforces a timeout. A Shizuku grant is a powerful capability; never execute arbitrary command text from an unauthenticated server.
+The service waits for Shizuku binder availability and the user's explicit permission. Install the official Rish shell script and matching `rish_shizuku.dex` into app-private no-backup storage through `installRishBundle`; the method requires expected SHA-256 digests from the trusted provisioning channel and makes the DEX read-only. Rish runs as the app UID so it can read the DEX and use the Shizuku binder, then opens the elevated remote shell. Each process explicitly receives `RISH_PRESERVE_ENV=1`. The service accepts only an allowlisted executable plus a bounded argument array, captures stdout and stderr concurrently, and enforces a timeout. A Shizuku grant is a powerful capability; never execute arbitrary command text from an unauthenticated server.
 
 ## GitHub Actions
 
