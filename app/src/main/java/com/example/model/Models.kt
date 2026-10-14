@@ -46,7 +46,8 @@ enum class ConnectionState(val label: String, val isReady: Boolean) {
 
 enum class TransportMode(val label: String) {
   SIMULATED_DEMO("Demo / Simulation (Synthetic Frames)"),
-  CANONICAL_PENDING("Pending Canonical OCI Integration")
+  CANONICAL_PENDING("Control Plane Not Connected"),
+  LIVE_MTLS("Live Authenticated mTLS Stream")
 }
 
 data class ComputeJob(
