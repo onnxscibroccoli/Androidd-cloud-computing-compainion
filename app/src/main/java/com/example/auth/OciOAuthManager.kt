@@ -236,12 +236,17 @@ class OciOAuthManager(
         }
         if (!audienceMatches) throw SecurityException("ID token audience mismatch")
         val now = System.currentTimeMillis() / 1000
+        if (claims.optString("sub").isBlank()) throw SecurityException("ID token subject is missing")
         if (claims.optLong("exp", 0) <= now) throw SecurityException("ID token expired")
+        if (claims.optLong("iat", Long.MAX_VALUE) > now + 60) throw SecurityException("ID token issued-at time is in the future")
         if (claims.has("nbf") && claims.optLong("nbf") > now + 60) throw SecurityException("ID token not yet valid")
         if (claims.optString("nonce") != expectedNonce) throw SecurityException("ID token nonce mismatch")
         val authorizedParty = claims.optString("azp")
-        if (audience is JSONArray && audience.length() > 1 && authorizedParty != clientId) {
+        if (authorizedParty.isNotBlank() && authorizedParty != clientId) {
             throw SecurityException("ID token authorized-party mismatch")
+        }
+        if (audience is JSONArray && audience.length() > 1 && authorizedParty != clientId) {
+            throw SecurityException("ID token authorized-party is required for multiple audiences")
         }
     }
 
