@@ -33,11 +33,13 @@ class ShizukuCommandDispatcher(
 
         override fun onServiceDisconnected(name: ComponentName?) {
             engine = null
+            foregroundStarted = false
         }
 
         override fun onBindingDied(name: ComponentName?) {
             engine = null
             bound = false
+            foregroundStarted = false
         }
 
         override fun onNullBinding(name: ComponentName?) {
