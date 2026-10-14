@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.UUID
+import java.io.InputStream
 
 class ControllerViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -143,6 +144,21 @@ class ControllerViewModel(application: Application) : AndroidViewModel(applicati
     runCatching { shizukuDispatcher.requestPermission() }
       .onSuccess { _snackbarMessage.value = "Shizuku permission request sent. Approve it in Shizuku when prompted." }
       .onFailure { _snackbarMessage.value = "Shizuku unavailable: " + (it.message ?: it.javaClass.simpleName) }
+  }
+
+  suspend fun installRishBundle(
+    scriptInput: InputStream,
+    dexInput: InputStream,
+    expectedScriptSha256: String,
+    expectedDexSha256: String
+  ) {
+    shizukuDispatcher.installRishBundle(
+      scriptInput,
+      dexInput,
+      expectedScriptSha256,
+      expectedDexSha256
+    )
+    _snackbarMessage.value = "Rish bundle SHA-256 checks passed and the DEX was installed read-only."
   }
 
   override fun onCleared() {
