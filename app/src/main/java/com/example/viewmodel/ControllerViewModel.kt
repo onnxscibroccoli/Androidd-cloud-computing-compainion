@@ -157,10 +157,34 @@ class ControllerViewModel(application: Application) : AndroidViewModel(applicati
     _snackbarMessage.value = "mTLS configuration updated."
   }
 
+  fun showMessage(message: String) {
+    _snackbarMessage.value = message
+  }
+
+  fun updateMtlsIdentitySummary(
+    subject: String,
+    issuer: String,
+    fingerprint: String,
+    rootCertificateCount: Int
+  ) {
+    require(subject.isNotBlank() && issuer.isNotBlank())
+    require(fingerprint.matches(Regex("(?i)^[0-9a-f]{64}$")))
+    require(rootCertificateCount > 0)
+    val current = repository.mtlsConfig.value
+    repository.updateMtlsConfig(
+      current.copy(
+        clientCertSubject = subject,
+        clientCertIssuer = issuer,
+        clientCertFingerprint = fingerprint,
+        caRootSubject = "Trusted root CA bundle ($rootCertificateCount certificates)"
+      )
+    )
+    _snackbarMessage.value = "mTLS credential metadata updated from the validated PKCS#12 bundle."
+  }
+
   /**
-   * This action intentionally does not fabricate certificate metadata.
-   * A real client identity must be provisioned through Android Keystore or an approved
-   * certificate-enrollment flow before mTLS can be enabled.
+   * This legacy action is intentionally fail-closed. The app does not mint a fake identity.
+   * Import a CA-issued, device-specific PKCS#12 identity through the secure provisioning flow.
    */
   fun generateNewEphemeralCert() {
     _snackbarMessage.value =
