@@ -144,6 +144,7 @@ class MtlsStreamManager(private val appContext: Context? = null) {
    */
   fun attemptTlsHandshake() {
     demoStreamingJob?.cancel()
+    closeLiveTransport(sendCompleted = true)
     scope.launch {
       val config = _mtlsConfig.value
       if (config.endpointHost.isBlank() || config.endpointPort !in 1..65535) {
