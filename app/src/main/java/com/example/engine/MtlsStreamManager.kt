@@ -106,6 +106,37 @@ class MtlsStreamManager(private val appContext: Context? = null) {
     _connectionState.value = ConnectionState.DISCONNECTED
   }
 
+  fun setExecutionCommandHandler(handler: ((ExecutionCommand) -> Unit)?) {
+    executionCommandHandler = handler
+  }
+
+  fun sendCommandResult(result: CommandExecutionResult) {
+    scope.launch {
+      val observer = telemetryObserver
+      if (observer == null) {
+        _eventsFlow.emit(
+          StreamEvent.StreamError(
+            id = UUID.randomUUID().toString(),
+            code = "COMMAND_RESULT_STREAM_UNAVAILABLE",
+            reason = "Command result was not sent because the authenticated device stream is not open."
+          )
+        )
+        return@launch
+      }
+      try {
+        val telemetry = withContext(Dispatchers.IO) {
+          buildDeviceTelemetry().toBuilder()
+            .setCommandResult(result)
+            .putAttributes("message_type", "command_result")
+            .build()
+        }
+        observer.onNext(telemetry)
+      } catch (error: Exception) {
+        handleLiveStreamError(liveTransport, error)
+      }
+    }
+  }
+
   /**
    * Performs an honest handshake diagnostic test.
    * A server-only diagnostic advances to TLS_SERVER_VERIFIED, never TLS_AUTHENTICATED.
