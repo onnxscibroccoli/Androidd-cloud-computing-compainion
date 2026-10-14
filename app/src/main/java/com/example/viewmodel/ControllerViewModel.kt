@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.local.AppDatabase
 import com.example.data.repository.ComputeRepository
 import com.example.engine.MtlsStreamManager
+import com.example.engine.GrpcOciControllerService
 import com.example.model.CommandType
 import com.example.model.ComputeJob
 import com.example.model.ConnectionState
@@ -28,7 +29,7 @@ class ControllerViewModel(application: Application) : AndroidViewModel(applicati
 
   private val database = AppDatabase.getDatabase(application)
   private val streamManager = MtlsStreamManager()
-  private val repository = ComputeRepository(database, streamManager)
+  private val repository = ComputeRepository(database, streamManager, GrpcOciControllerService(application, streamManager))
 
   val connectionState: StateFlow<ConnectionState> = repository.connectionState
   val transportMode: StateFlow<TransportMode> = repository.transportMode
