@@ -101,6 +101,7 @@ dependencies {
   implementation(libs.protobuf.java)
   implementation(libs.javax.annotation)
   implementation(libs.shizuku.api)
+  implementation(libs.shizuku.provider)
   implementation(platform(libs.androidx.compose.bom))
   implementation(platform(libs.firebase.bom))
   // implementation(libs.accompanist.permissions)
