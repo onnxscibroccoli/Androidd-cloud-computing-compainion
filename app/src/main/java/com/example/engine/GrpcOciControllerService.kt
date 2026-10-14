@@ -69,6 +69,16 @@ class GrpcOciControllerService(
                 throw SecurityException("Execution receipt summary contains control characters")
             }
 
+            val workerCpuPct = if (receipt.workerCpuMeasured) {
+                val measured = receipt.workerCpuPercent.toFloat()
+                if (!measured.isFinite() || measured !in 0f..100f) {
+                    throw SecurityException("Execution receipt contains an invalid measured worker CPU percentage")
+                }
+                measured
+            } else {
+                null
+            }
+
             onProgress(1f)
             val summary = "[REAL_OCI_WORKER] worker=${receipt.workerId}; request=$requestId; " +
                 "started=${receipt.startedAtEpochMs}; completed=${receipt.completedAtEpochMs}; " +
@@ -78,11 +88,13 @@ class GrpcOciControllerService(
                     durationMs = receipt.durationMs,
                     operationsCount = receipt.operationsCount,
                     summary = summary,
-                    localCpuPct = 0f
+                    localCpuPct = 0f,
+                    localCpuMeasured = false
                 ),
                 executionProof = ExecutionProof.REAL_OCI_WORKER,
                 workerId = receipt.workerId,
                 requestId = requestId,
+                workerCpuPct = workerCpuPct,
                 evidenceSummary = "Authenticated mTLS SubmitExecution response with matching request ID and worker receipt."
             )
         } finally {
