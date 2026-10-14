@@ -138,18 +138,9 @@ class MtlsStreamManager(private val appContext: Context? = null) {
   }
 
   /**
-   * Performs an honest handshake diagnostic test.
-   * A server-only diagnostic advances to TLS_SERVER_VERIFIED, never TLS_AUTHENTICATED.
-   * Only the gRPC mTLS transport with a client identity can establish mutual authentication.
-   * This diagnostic never claims READY because it does not speak the control-plane protocol.
-   */
-  /**
-   * Performs a real TLS server-certificate and hostname verification probe.
-   *
-   * This prototype has no client-certificate/private-key provider. Therefore an mTLS-required
-   * configuration fails closed rather than claiming a synthetic TLS_AUTHENTICATED state.
-   * Disabling mTLS allows a genuine platform-trust TLS diagnostic only; it does not authenticate
-   * an OCI identity or establish application/device readiness.
+   * Performs a real mTLS health RPC and opens a persistent bidirectional device stream when the
+   * authenticated server confirms readiness. With mTLS disabled, this method performs only a
+   * server-certificate/hostname diagnostic and never claims device authentication or READY.
    */
   fun attemptTlsHandshake() {
     demoStreamingJob?.cancel()
