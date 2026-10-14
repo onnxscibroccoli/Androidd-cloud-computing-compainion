@@ -36,7 +36,7 @@ interface OciControllerService {
 
 /**
  * Explicit demo adapter. It is deliberately incapable of returning REAL_OCI_WORKER.
- * Replace only after the controller API and receipt-verification contract are implemented.
+ * The production adapter is `GrpcOciControllerService`; it uses the mTLS control-plane contract and returns REAL_OCI_WORKER only after validating the authenticated receipt.
  */
 /**
  * Default safe adapter for non-production contexts. It fails explicitly instead of returning a
