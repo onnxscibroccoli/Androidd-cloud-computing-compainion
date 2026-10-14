@@ -95,12 +95,6 @@ class OciOAuthManager(
             callback.port == registered.port && callback.path == registered.path) {
             "Unexpected OAuth redirect URI"
         }
-        callback.getQueryParameter("error")?.let {
-            clearPending()
-            throw IOException("OCI authorization failed: $it")
-        }
-        val code = callback.getQueryParameter("code")?.takeIf { it.isNotBlank() }
-            ?: throw IOException("OAuth callback has no authorization code")
         val receivedState = callback.getQueryParameter("state") ?: ""
         val expectedState = prefs.getString(KEY_STATE, null)
             ?: throw SecurityException("No pending authorization request")
@@ -108,6 +102,12 @@ class OciOAuthManager(
             clearPending()
             throw SecurityException("OAuth state validation failed")
         }
+        callback.getQueryParameter("error")?.let {
+            clearPending()
+            throw IOException("OCI authorization failed: $it")
+        }
+        val code = callback.getQueryParameter("code")?.takeIf { it.isNotBlank() }
+            ?: throw IOException("OAuth callback has no authorization code")
         val verifier = prefs.getString(KEY_VERIFIER, null)
             ?: throw SecurityException("PKCE verifier is missing")
         val nonce = prefs.getString(KEY_NONCE, null)
