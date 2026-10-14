@@ -38,6 +38,21 @@ interface OciControllerService {
  * Explicit demo adapter. It is deliberately incapable of returning REAL_OCI_WORKER.
  * Replace only after the controller API and receipt-verification contract are implemented.
  */
+/**
+ * Default safe adapter for non-production contexts. It fails explicitly instead of returning a
+ * fabricated cloud result. Tests or demo UI must opt into DemoOciControllerService deliberately.
+ */
+class UnconfiguredOciControllerService : OciControllerService {
+  override suspend fun submit(
+    job: ComputeJob,
+    onProgress: suspend (Float) -> Unit
+  ): OciExecutionResult {
+    throw IllegalStateException(
+      "Live OCI execution is not configured. Provision the control-plane mTLS identity, trusted CA, and server endpoint."
+    )
+  }
+}
+
 class DemoOciControllerService(
   private val streamManager: MtlsStreamManager
 ) : OciControllerService {
