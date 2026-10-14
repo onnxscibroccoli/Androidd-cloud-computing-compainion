@@ -27,7 +27,7 @@ class OciOAuthManager(
     context: Context,
     identityDomainBaseUrl: String = BuildConfigValues.domainUrl(),
     private val clientId: String = BuildConfigValues.clientId(),
-    private val redirectUri: String,
+    private val redirectUri: String = "com.example.controller://oauth/callback",
     private val scopes: List<String> = listOf("openid", "profile"),
     private val http: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
