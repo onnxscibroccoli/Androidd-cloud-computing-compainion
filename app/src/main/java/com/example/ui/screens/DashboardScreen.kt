@@ -78,6 +78,7 @@ fun DashboardScreen(
   ociAuthStatus: String,
   onOciSignIn: () -> Unit,
   onRequestShizukuPermission: () -> Unit,
+  onInstallRishBundle: () -> Unit,
   modifier: Modifier = Modifier
 ) {
   LazyColumn(
@@ -175,6 +176,12 @@ fun DashboardScreen(
             modifier = Modifier.fillMaxWidth().testTag("request_shizuku_permission")
           ) {
             Text("Request Shizuku permission")
+          }
+          Button(
+            onClick = onInstallRishBundle,
+            modifier = Modifier.fillMaxWidth().testTag("install_verified_rish_bundle")
+          ) {
+            Text("Install verified Rish bundle")
           }
         }
       }
