@@ -12,6 +12,16 @@ message DeviceTelemetry {
   int64 network_tx_bytes = 6;
   string app_version = 7;
   map<string, string> attributes = 8;
+  CommandExecutionResult command_result = 9;
+}
+
+message CommandExecutionResult {
+  string command_id = 1;
+  int32 exit_code = 2;
+  string stdout = 3;
+  string stderr = 4;
+  int64 duration_ms = 5;
+  bool timed_out = 6;
 }
 
 message ExecutionCommand {
