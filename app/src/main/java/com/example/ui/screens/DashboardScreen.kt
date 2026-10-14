@@ -257,7 +257,11 @@ fun DashboardScreen(
         ) {
           MetricMiniCard(
             title = "LOCAL CPU BENCHMARK",
-            value = if (telemetry.localCpuPct > 0f) String.format(Locale.US, "%.1f%%", telemetry.localCpuPct) else "Idle",
+            value = when {
+              telemetry.isSimulated -> String.format(Locale.US, "DEMO %.1f%%", telemetry.localCpuPct)
+              telemetry.localCpuMeasured -> String.format(Locale.US, "%.1f%%", telemetry.localCpuPct)
+              else -> "N/A"
+            },
             subtitle = "Actual On-Device Measure",
             icon = Icons.Default.Memory,
             accentColor = SecurityGreen,
