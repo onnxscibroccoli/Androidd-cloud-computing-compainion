@@ -148,7 +148,8 @@ class MainActivity : ComponentActivity() {
           ociAuthStatus = ociAuthStatus.value,
           onOciSignIn = { beginOciSignIn() },
           onRequestShizukuPermission = { viewModel.requestShizukuPermission() },
-          onInstallRishBundle = { beginRishProvisioning() }
+          onInstallRishBundle = { beginRishProvisioning() },
+          onStopShizukuBackgroundExecution = { viewModel.stopShizukuBackgroundExecution() }
         )
       }
     }
@@ -313,7 +314,8 @@ fun MainControllerApp(
   ociAuthStatus: String,
   onOciSignIn: () -> Unit,
   onRequestShizukuPermission: () -> Unit,
-  onInstallRishBundle: () -> Unit
+  onInstallRishBundle: () -> Unit,
+  onStopShizukuBackgroundExecution: () -> Unit
 ) {
   val activeTab by viewModel.activeTab.collectAsStateWithLifecycle()
   val connectionState by viewModel.connectionState.collectAsStateWithLifecycle()
@@ -418,7 +420,8 @@ fun MainControllerApp(
           ociAuthStatus = ociAuthStatus,
           onOciSignIn = onOciSignIn,
           onRequestShizukuPermission = onRequestShizukuPermission,
-          onInstallRishBundle = onInstallRishBundle
+          onInstallRishBundle = onInstallRishBundle,
+          onStopShizukuBackgroundExecution = onStopShizukuBackgroundExecution
         )
 
         1 -> ComputeQueueScreen(
