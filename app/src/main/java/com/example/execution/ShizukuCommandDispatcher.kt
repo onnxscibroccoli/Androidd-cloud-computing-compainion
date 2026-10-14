@@ -5,6 +5,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.os.IBinder
+import java.io.InputStream
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.example.transport.proto.CommandExecutionResult
 import com.example.transport.proto.ExecutionCommand
 
@@ -54,6 +57,21 @@ class ShizukuCommandDispatcher(
     fun requestPermission() {
         val service = engine ?: throw IllegalStateException("Shizuku execution service is not bound yet")
         service.requestExecutionPermission()
+    }
+
+    suspend fun installRishBundle(
+        scriptInput: InputStream,
+        dexInput: InputStream,
+        expectedScriptSha256: String,
+        expectedDexSha256: String
+    ) = withContext(Dispatchers.IO) {
+        val service = engine ?: throw IllegalStateException("Shizuku execution service is not bound yet")
+        service.installRishBundle(
+            scriptInput,
+            dexInput,
+            expectedScriptSha256,
+            expectedDexSha256
+        )
     }
 
     fun dispatch(command: ExecutionCommand) {
