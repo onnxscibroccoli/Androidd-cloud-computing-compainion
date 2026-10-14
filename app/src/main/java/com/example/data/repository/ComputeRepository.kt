@@ -6,6 +6,9 @@ import com.example.data.local.TelemetryLogEntity
 import com.example.engine.BenchmarkResult
 import com.example.engine.LocalComputeEngine
 import com.example.engine.MtlsStreamManager
+import com.example.engine.OciControllerService
+import com.example.engine.DemoOciControllerService
+import com.example.engine.ExecutionProof
 import com.example.model.CommandType
 import com.example.model.ComputeJob
 import com.example.model.ConnectionState
@@ -30,7 +33,8 @@ import java.util.concurrent.ConcurrentHashMap
 
 class ComputeRepository(
   private val database: AppDatabase,
-  private val streamManager: MtlsStreamManager
+  private val streamManager: MtlsStreamManager,
+  private val ociControllerService: OciControllerService = DemoOciControllerService(streamManager)
 ) {
   private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
   private val activeJobs = ConcurrentHashMap<String, Job>()
@@ -90,13 +94,21 @@ class ComputeRepository(
           }
 
           ExecutionTarget.OCI_CLOUD_STREAM -> {
-            // Simulated cloud execution model
-            result = streamManager.dispatchDemoCloudSimulation(job) { progress ->
+            // The service returns explicit evidence. The default adapter is demo-only and cannot
+            // claim REAL_OCI_WORKER without an authenticated backend receipt.
+            val cloudExecution = ociControllerService.submit(job) { progress ->
               updateProgress(job.id, progress)
             }
+            result = cloudExecution.benchmark.copy(
+              summary = "${cloudExecution.executionProof}: ${cloudExecution.evidenceSummary} ${cloudExecution.benchmark.summary}"
+            )
             val estimatedLocalTime = estimateLocalTimeMs(job.algorithm, job.complexityUnits)
-            speedupRatio = (estimatedLocalTime.toFloat() / result.durationMs.toFloat().coerceAtLeast(1f)).coerceAtLeast(1.2f)
-            isSimulated = true
+            speedupRatio = if (cloudExecution.executionProof == ExecutionProof.REAL_OCI_WORKER) {
+              (estimatedLocalTime.toFloat() / result.durationMs.toFloat().coerceAtLeast(1f)).coerceAtLeast(1.0f)
+            } else {
+              1.0f
+            }
+            isSimulated = cloudExecution.executionProof != ExecutionProof.REAL_OCI_WORKER
           }
 
           ExecutionTarget.HYBRID_SPLIT -> {
@@ -111,26 +123,31 @@ class ComputeRepository(
             }
 
             val cloudDeferred = async {
-              streamManager.dispatchDemoCloudSimulation(job.copy(complexityUnits = cloudFractionUnits)) { p ->
+              ociControllerService.submit(job.copy(complexityUnits = cloudFractionUnits)) { p ->
                 updateProgress(job.id, 0.4f + p * 0.6f)
               }
             }
 
             val localResult = localDeferred.await()
-            val cloudResult = cloudDeferred.await()
+            val cloudExecution = cloudDeferred.await()
+            val cloudResult = cloudExecution.benchmark
 
             val totalDuration = maxOf(localResult.durationMs, cloudResult.durationMs)
             val totalOps = localResult.operationsCount + cloudResult.operationsCount
             val estimatedLocalTotal = estimateLocalTimeMs(job.algorithm, job.complexityUnits)
-            speedupRatio = (estimatedLocalTotal.toFloat() / totalDuration.toFloat().coerceAtLeast(1f)).coerceAtLeast(1.4f)
+            speedupRatio = if (cloudExecution.executionProof == ExecutionProof.REAL_OCI_WORKER) {
+              (estimatedLocalTotal.toFloat() / totalDuration.toFloat().coerceAtLeast(1f)).coerceAtLeast(1.0f)
+            } else {
+              1.0f
+            }
 
             result = BenchmarkResult(
               durationMs = totalDuration,
               operationsCount = totalOps,
-              summary = "[HYBRID] 25% Local Actual (${localResult.durationMs}ms) + 75% Cloud Demo (${cloudResult.durationMs}ms). Model speedup: %.1fx.".format(speedupRatio),
+              summary = "[HYBRID] Local Actual + Cloud ${cloudExecution.executionProof}. ${cloudExecution.evidenceSummary} Local=${localResult.durationMs}ms, cloud=${cloudResult.durationMs}ms.",
               localCpuPct = localResult.localCpuPct * 0.5f
             )
-            isSimulated = true
+            isSimulated = cloudExecution.executionProof != ExecutionProof.REAL_OCI_WORKER
           }
         }
 
