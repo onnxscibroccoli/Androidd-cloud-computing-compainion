@@ -78,6 +78,7 @@ class ComputeRepository(
         val result: BenchmarkResult
         var speedupRatio = 1.0f
         var isSimulated = false
+        var workerCpuPct: Float? = null
 
         when (job.target) {
           ExecutionTarget.LOCAL_DEVICE -> {
@@ -98,6 +99,7 @@ class ComputeRepository(
             val cloudExecution = ociControllerService.submit(job) { progress ->
               updateProgress(job.id, progress)
             }
+            workerCpuPct = cloudExecution.workerCpuPct
             result = cloudExecution.benchmark.copy(
               summary = "${cloudExecution.executionProof}: ${cloudExecution.evidenceSummary} ${cloudExecution.benchmark.summary}"
             )
@@ -130,6 +132,7 @@ class ComputeRepository(
             val localResult = localDeferred.await()
             val cloudExecution = cloudDeferred.await()
             val cloudResult = cloudExecution.benchmark
+            workerCpuPct = cloudExecution.workerCpuPct
 
             val totalDuration = maxOf(localResult.durationMs, cloudResult.durationMs)
             val totalOps = localResult.operationsCount + cloudResult.operationsCount
@@ -144,7 +147,8 @@ class ComputeRepository(
               durationMs = totalDuration,
               operationsCount = totalOps,
               summary = "[HYBRID] Local Actual + Cloud ${cloudExecution.executionProof}. ${cloudExecution.evidenceSummary} Local=${localResult.durationMs}ms, cloud=${cloudResult.durationMs}ms.",
-              localCpuPct = localResult.localCpuPct * 0.5f
+              localCpuPct = localResult.localCpuPct,
+              localCpuMeasured = localResult.localCpuMeasured
             )
             isSimulated = cloudExecution.executionProof != ExecutionProof.REAL_OCI_WORKER
           }
@@ -156,8 +160,8 @@ class ComputeRepository(
           durationMs = result.durationMs,
           resultSummary = result.summary,
           speedupRatio = speedupRatio,
-          localCpuPct = result.localCpuPct,
-          cloudCpuPct = if (job.target != ExecutionTarget.LOCAL_DEVICE) 70f else 0f,
+          localCpuPct = if (result.localCpuMeasured) result.localCpuPct else -1f,
+          cloudCpuPct = workerCpuPct ?: -1f,
           isSimulatedCloud = isSimulated
         )
         database.computeJobDao().updateJob(ComputeJobEntity.fromDomain(completedJob))
