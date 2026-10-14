@@ -97,7 +97,7 @@ jobs:
   release:
     name: Sign production controller APK
     needs: verify
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
