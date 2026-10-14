@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.os.IBinder
+import android.os.Build
 import java.io.InputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -55,8 +56,23 @@ class ShizukuCommandDispatcher(
     }
 
     fun requestPermission() {
+        startForegroundService()
         val service = engine ?: throw IllegalStateException("Shizuku execution service is not bound yet")
         service.requestExecutionPermission()
+    }
+
+    fun stopBackgroundExecution() {
+        close()
+        appContext.stopService(Intent(appContext, ShizukuExecutionEngine::class.java))
+    }
+
+    private fun startForegroundService() {
+        val intent = Intent(appContext, ShizukuExecutionEngine::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            appContext.startForegroundService(intent)
+        } else {
+            appContext.startService(intent)
+        }
     }
 
     suspend fun installRishBundle(
@@ -93,6 +109,8 @@ class ShizukuCommandDispatcher(
             reject(command, 126, "Shizuku permission has not been granted by the device owner.")
             return
         }
+        runCatching { startForegroundService() }
+            .onFailure { reject(command, 126, "Unable to start visible background execution: " + (it.message ?: it.javaClass.simpleName)); return }
 
         val timeoutSeconds = ((command.deadlineEpochMs - now) / 1000L).coerceIn(1L, MAX_TIMEOUT_SECONDS)
         val request = ShizukuExecutionEngine.ExecutionRequest(
