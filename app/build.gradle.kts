@@ -87,7 +87,20 @@ googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.W
 
 // Some unused dependencies are commented out below instead of being removed.
 // This makes it easy to add them back in the future if needed.
+protobuf {
+  protoc { artifact = "com.google.protobuf:protoc:4.30.2" }
+  plugins { create("grpc") { artifact = "io.grpc:protoc-gen-grpc-java:1.70.0" } }
+  generateProtoTasks { all().configureEach { plugins { create("grpc") } } }
+}
+
 dependencies {
+  implementation(libs.androidx.security.crypto)
+  implementation(libs.grpc.okhttp)
+  implementation(libs.grpc.protobuf)
+  implementation(libs.grpc.stub)
+  implementation(libs.protobuf.java)
+  implementation(libs.javax.annotation)
+  implementation(libs.shizuku.api)
   implementation(platform(libs.androidx.compose.bom))
   implementation(platform(libs.firebase.bom))
   // implementation(libs.accompanist.permissions)
