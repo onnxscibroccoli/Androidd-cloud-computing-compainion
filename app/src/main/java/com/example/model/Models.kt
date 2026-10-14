@@ -10,8 +10,8 @@ enum class CommandType(val displayName: String, val description: String) {
 
 enum class ExecutionTarget(val displayName: String, val badgeColor: Long) {
   LOCAL_DEVICE("Local Mobile CPU (Actual)", 0xFF64748B),
-  OCI_CLOUD_STREAM("OCI Cloud gRPC (Simulated Demo)", 0xFFC74634),
-  HYBRID_SPLIT("Hybrid Split (Local Actual + Demo Cloud)", 0xFF00E5BE)
+  OCI_CLOUD_STREAM("OCI Cloud gRPC (mTLS)", 0xFFC74634),
+  HYBRID_SPLIT("Hybrid Split (Local + OCI mTLS)", 0xFF00E5BE)
 }
 
 enum class JobStatus {
