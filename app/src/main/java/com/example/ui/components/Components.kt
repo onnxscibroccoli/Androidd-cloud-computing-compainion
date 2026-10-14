@@ -77,7 +77,8 @@ fun StatusBadge(
   val (color, text) = when (state) {
     ConnectionState.UNCONFIGURED -> Pair(Color.Gray, "UNCONFIGURED")
     ConnectionState.CONNECTING -> Pair(QueueAmber, "CONNECTING")
-    ConnectionState.TLS_AUTHENTICATED -> Pair(StreamCyan, "TLS_AUTHENTICATED")
+    ConnectionState.TLS_SERVER_VERIFIED -> Pair(QueueAmber, "TLS_SERVER_VERIFIED")
+    ConnectionState.TLS_AUTHENTICATED -> Pair(StreamCyan, "MTLS_AUTHENTICATED")
     ConnectionState.WAITING_FOR_DEVICE_READINESS -> Pair(QueueAmber, "WAITING_FOR_DEVICE_READINESS")
     ConnectionState.READY -> Pair(SecurityGreen, "READY")
     ConnectionState.DISCONNECTED -> Pair(Color.Gray, "DISCONNECTED")
@@ -139,7 +140,7 @@ fun DemoHonestyBanner(modifier: Modifier = Modifier) {
         )
         Spacer(modifier = Modifier.height(2.dp))
         Text(
-          text = "No authenticated live OCI connection is open. Simulated cloud metrics are synthetic models. Local CPU benchmarks are genuine on-device measurements.",
+          text = "Demo telemetry is synthetic and labeled as such. Local CPU benchmarks are genuine on-device measurements. Live cloud jobs use authenticated mTLS RPCs and fail closed when credentials, server readiness, or execution receipts are invalid.",
           fontSize = 11.sp,
           color = Color(0xFFFDE68A),
           lineHeight = 15.sp
