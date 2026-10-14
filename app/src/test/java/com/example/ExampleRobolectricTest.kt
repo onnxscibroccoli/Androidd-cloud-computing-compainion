@@ -60,13 +60,14 @@ class ExampleRobolectricTest {
   }
 
   @Test
-  fun `handshake advances to waiting gate and never claims ready without transport`() = runBlocking {
+  fun `mTLS required without client identity fails closed`() = runBlocking {
     val streamManager = MtlsStreamManager()
+    streamManager.updateConfig(streamManager.mtlsConfig.value.copy(isMtlsEnforced = true))
     streamManager.attemptTlsHandshake()
-    // Give diagnostic handshake time to advance through TLS_AUTHENTICATED to WAITING_FOR_DEVICE_READINESS
-    delay(1100)
-    assertEquals(ConnectionState.WAITING_FOR_DEVICE_READINESS, streamManager.connectionState.value)
-    assertFalse("Cannot be READY without canonical device readiness evidence", streamManager.connectionState.value.isReady)
+    // The default config has no client-certificate/private-key provider. It must not claim TLS auth.
+    delay(250)
+    assertEquals(ConnectionState.ERROR, streamManager.connectionState.value)
+    assertFalse("Missing client identity must never be reported as ready", streamManager.connectionState.value.isReady)
     assertNotEquals(ConnectionState.READY, streamManager.connectionState.value)
   }
 }
