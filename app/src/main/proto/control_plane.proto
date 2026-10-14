@@ -1,0 +1,28 @@
+syntax = "proto3";
+package omnikali.controlplane.v1;
+option java_package = "com.example.transport.proto";
+option java_multiple_files = true;
+
+message DeviceTelemetry {
+  string device_id = 1;
+  int64 observed_at_epoch_ms = 2;
+  double cpu_load_percent = 3;
+  int64 available_memory_bytes = 4;
+  int64 network_rx_bytes = 5;
+  int64 network_tx_bytes = 6;
+  string app_version = 7;
+  map<string, string> attributes = 8;
+}
+
+message ExecutionCommand {
+  string command_id = 1;
+  string executable = 2;
+  repeated string arguments = 3;
+  int64 deadline_epoch_ms = 4;
+  string requested_by = 5;
+  map<string, string> environment = 6;
+}
+
+service ControlPlane {
+  rpc DeviceSession(stream DeviceTelemetry) returns (stream ExecutionCommand);
+}
