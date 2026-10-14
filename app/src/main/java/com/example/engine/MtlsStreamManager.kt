@@ -88,8 +88,9 @@ class MtlsStreamManager {
 
   /**
    * Performs an honest handshake diagnostic test.
-   * Advances through TLS_AUTHENTICATED, then halts at WAITING_FOR_DEVICE_READINESS.
-   * Will NEVER claim READY because the external canonical OCI transport is unlinked.
+   * A server-only diagnostic advances to TLS_SERVER_VERIFIED, never TLS_AUTHENTICATED.
+   * Only the gRPC mTLS transport with a client identity can establish mutual authentication.
+   * This diagnostic never claims READY because it does not speak the control-plane protocol.
    */
   /**
    * Performs a real TLS server-certificate and hostname verification probe.
@@ -161,7 +162,7 @@ class MtlsStreamManager {
           }
         }
 
-        _connectionState.value = ConnectionState.TLS_AUTHENTICATED
+        _connectionState.value = ConnectionState.TLS_SERVER_VERIFIED
         _eventsFlow.emit(
           StreamEvent.Handshake(
             id = UUID.randomUUID().toString(),
