@@ -54,7 +54,7 @@ object LocalComputeEngine {
     BenchmarkResult(
       durationMs = duration,
       operationsCount = ops,
-      summary = "Computed ${n}x${n} FP32 matrix ($ops FLOPs) @ %.2f GFLOPS. Checksum: %.3f".format(gflops, c[0][0]),
+      summary = "Computed ${n}x${n} FP32 matrix ($ops FLOPs) @ %.2f GFLOPS. Checksum: %.3f".format(gflops, c[0][0]) + cpuSummary(cpuLoad),
       localCpuPct = cpuLoad ?: 0f,
       localCpuMeasured = cpuLoad != null
     )
@@ -87,7 +87,7 @@ object LocalComputeEngine {
     BenchmarkResult(
       durationMs = duration,
       operationsCount = rounds.toLong(),
-      summary = "Completed $rounds SHA-256 rounds. Final digest prefix: 0x$hexPrefix... (${(rounds * 1000L) / duration} H/s)",
+      summary = "Completed $rounds SHA-256 rounds. Final digest prefix: 0x$hexPrefix... (${(rounds * 1000L) / duration} H/s)" + cpuSummary(cpuLoad),
       localCpuPct = cpuLoad ?: 0f,
       localCpuMeasured = cpuLoad != null
     )
@@ -126,7 +126,7 @@ object LocalComputeEngine {
         estimatedPi,
         kotlin.math.abs(estimatedPi - Math.PI) / Math.PI * 100.0,
         totalSamples
-      ),
+      ) + cpuSummary(cpuLoad),
       localCpuPct = cpuLoad ?: 0f,
       localCpuMeasured = cpuLoad != null
     )
@@ -169,7 +169,7 @@ object LocalComputeEngine {
     BenchmarkResult(
       durationMs = duration,
       operationsCount = limit.toLong(),
-      summary = "Discovered %,d prime numbers up to %,d in ${duration}ms".format(count, limit),
+      summary = "Discovered %,d prime numbers up to %,d in ${duration}ms".format(count, limit) + cpuSummary(cpuLoad),
       localCpuPct = cpuLoad ?: 0f,
       localCpuMeasured = cpuLoad != null
     )
@@ -206,7 +206,7 @@ object LocalComputeEngine {
       summary = "Processed %,d 3-axis IMU & thermal telemetry frames (Mean vector: %.2f m/s²)".format(
         count,
         accumulatedMagnitude / count
-      ),
+      ) + cpuSummary(cpuLoad),
       localCpuPct = cpuLoad ?: 0f,
       localCpuMeasured = cpuLoad != null
     )
