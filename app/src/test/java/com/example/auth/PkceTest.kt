@@ -4,9 +4,12 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 import java.security.MessageDigest
 import android.util.Base64
 
+@RunWith(RobolectricTestRunner::class)
 class PkceTest {
     @Test fun verifierHasHighEntropyAndValidPkceLength() {
         val verifier = Pkce.generateVerifier()
