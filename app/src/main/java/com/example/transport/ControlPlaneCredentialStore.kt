@@ -110,7 +110,8 @@ class ControlPlaneCredentialStore(context: Context) {
         }
     }
 
-    fun createTransport(host: String, port: Int): ControlPlaneTransport {
+    fun createTransport(host: String, port: Int, accessToken: String): ControlPlaneTransport {
+        check(accessToken.isNotBlank()) { "A valid OCI access token is required for control-plane RPCs" }
         check(hasCredentials()) {
             "mTLS identity is not provisioned. Import a device PKCS#12 identity and trusted root CA bundle first."
         }
@@ -122,7 +123,8 @@ class ControlPlaneCredentialStore(context: Context) {
             port = port,
             identityFile = identityFile,
             identityPassword = password.toCharArray(),
-            rootCaPem = rootCaFile.readBytes()
+            rootCaPem = rootCaFile.readBytes(),
+            accessToken = accessToken
         )
     }
 
