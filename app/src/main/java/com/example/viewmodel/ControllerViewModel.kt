@@ -28,7 +28,7 @@ import java.util.UUID
 class ControllerViewModel(application: Application) : AndroidViewModel(application) {
 
   private val database = AppDatabase.getDatabase(application)
-  private val streamManager = MtlsStreamManager()
+  private val streamManager = MtlsStreamManager(application)
   private val repository = ComputeRepository(database, streamManager, GrpcOciControllerService(application, streamManager))
 
   val connectionState: StateFlow<ConnectionState> = repository.connectionState
