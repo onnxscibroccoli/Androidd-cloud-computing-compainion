@@ -76,6 +76,7 @@ data class TelemetrySnapshot(
   val ociMemoryMb: Long = 0L,
   val ociGpuPct: Float? = null,
   val localCpuPct: Float = 0f,
+  val localCpuMeasured: Boolean = false,
   val localMemoryMb: Long = 0L,
   val networkThroughputKbps: Float = 0f,
   val packetsDispatched: Long = 0L,
