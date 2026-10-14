@@ -161,6 +161,7 @@ class ComputeRepository(
           resultSummary = result.summary,
           speedupRatio = speedupRatio,
           localCpuPct = if (result.localCpuMeasured) result.localCpuPct else -1f,
+          localCpuMeasured = result.localCpuMeasured,
           cloudCpuPct = workerCpuPct ?: -1f,
           isSimulatedCloud = isSimulated
         )
