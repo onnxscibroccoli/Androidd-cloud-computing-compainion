@@ -467,7 +467,7 @@ private fun JobDetailCard(
           if (job.target == ExecutionTarget.LOCAL_DEVICE) {
             MetricBadge(
               label = "Measurement",
-              value = "Actual Device Measure",
+              value = "Executed on Device",
               color = SecurityGreen
             )
           } else if (job.speedupRatio > 1.0f) {
