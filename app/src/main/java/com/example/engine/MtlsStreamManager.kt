@@ -10,6 +10,7 @@ import com.example.model.TelemetrySnapshot
 import com.example.model.TransportMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
@@ -22,6 +23,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.UUID
+import java.net.InetSocketAddress
+import javax.net.ssl.SSLSocket
+import javax.net.ssl.SSLSocketFactory
 import kotlin.random.Random
 
 /**
@@ -87,17 +91,25 @@ class MtlsStreamManager {
    * Advances through TLS_AUTHENTICATED, then halts at WAITING_FOR_DEVICE_READINESS.
    * Will NEVER claim READY because the external canonical OCI transport is unlinked.
    */
+  /**
+   * Performs a real TLS server-certificate and hostname verification probe.
+   *
+   * This prototype has no client-certificate/private-key provider. Therefore an mTLS-required
+   * configuration fails closed rather than claiming a synthetic TLS_AUTHENTICATED state.
+   * Disabling mTLS allows a genuine platform-trust TLS diagnostic only; it does not authenticate
+   * an OCI identity or establish application/device readiness.
+   */
   fun attemptTlsHandshake() {
     demoStreamingJob?.cancel()
-
     scope.launch {
-      if (_mtlsConfig.value.endpointHost.isBlank()) {
+      val config = _mtlsConfig.value
+      if (config.endpointHost.isBlank() || config.endpointPort !in 1..65535) {
         _connectionState.value = ConnectionState.UNCONFIGURED
         _eventsFlow.emit(
           StreamEvent.StreamError(
             id = UUID.randomUUID().toString(),
             code = "UNCONFIGURED",
-            reason = "Missing OCI endpoint host or certificate identity."
+            reason = "A valid endpoint host and TCP port are required."
           )
         )
         return@launch
@@ -107,31 +119,82 @@ class MtlsStreamManager {
       _eventsFlow.emit(
         StreamEvent.Handshake(
           id = UUID.randomUUID().toString(),
-          message = "[TCP ATTEMPT] Probing target endpoint ${_mtlsConfig.value.endpointHost}:${_mtlsConfig.value.endpointPort}",
-          success = true
-        )
-      )
-      delay(400)
-
-      _connectionState.value = ConnectionState.TLS_AUTHENTICATED
-      _eventsFlow.emit(
-        StreamEvent.Handshake(
-          id = UUID.randomUUID().toString(),
-          message = "[TLS VERIFIED] Local mTLS cipher suite & client cert validated. State: TLS_AUTHENTICATED.",
-          success = true
-        )
-      )
-      delay(300)
-
-      // Strict enforcement: TLS verification alone is NOT application readiness.
-      _connectionState.value = ConnectionState.WAITING_FOR_DEVICE_READINESS
-      _eventsFlow.emit(
-        StreamEvent.Handshake(
-          id = UUID.randomUUID().toString(),
-          message = "[GATE PAUSE] State: WAITING_FOR_DEVICE_READINESS. Halting before READY: Canonical OCI transport & device readiness gate unlinked.",
+          message = "[TLS PROBE] Starting a real TLS server-certificate and hostname verification probe for ${config.endpointHost}:${config.endpointPort}.",
           success = false
         )
       )
+
+      if (config.isMtlsEnforced) {
+        _connectionState.value = ConnectionState.ERROR
+        val reason = "mTLS is required, but no client certificate/private-key provider is configured. No handshake was claimed and no OCI identity was authenticated."
+        _eventsFlow.emit(
+          StreamEvent.StreamError(
+            id = UUID.randomUUID().toString(),
+            code = "MTLS_CLIENT_IDENTITY_MISSING",
+            reason = reason
+          )
+        )
+        _eventsFlow.emit(
+          StreamEvent.Handshake(
+            id = UUID.randomUUID().toString(),
+            message = "[FAIL CLOSED] $reason",
+            success = false
+          )
+        )
+        return@launch
+      }
+
+      try {
+        val negotiated = withContext(Dispatchers.IO) {
+          val socket = SSLSocketFactory.getDefault().createSocket() as SSLSocket
+          try {
+            socket.connect(InetSocketAddress(config.endpointHost, config.endpointPort), 5000)
+            socket.soTimeout = 5000
+            val parameters = socket.sslParameters
+            parameters.endpointIdentificationAlgorithm = "HTTPS"
+            socket.sslParameters = parameters
+            socket.startHandshake()
+            val session = socket.session
+            Pair(session.protocol, session.cipherSuite)
+          } finally {
+            socket.close()
+          }
+        }
+
+        _connectionState.value = ConnectionState.TLS_AUTHENTICATED
+        _eventsFlow.emit(
+          StreamEvent.Handshake(
+            id = UUID.randomUUID().toString(),
+            message = "[TLS SERVER VERIFIED] Real TLS handshake succeeded. Protocol=${negotiated.first}; cipher=${negotiated.second}. Client mTLS identity was not used.",
+            success = true
+          )
+        )
+        _connectionState.value = ConnectionState.WAITING_FOR_DEVICE_READINESS
+        _eventsFlow.emit(
+          StreamEvent.Handshake(
+            id = UUID.randomUUID().toString(),
+            message = "[GATE PAUSE] Server TLS is verified, but no OCI controller protocol or device-readiness response has been received. READY is not asserted.",
+            success = false
+          )
+        )
+      } catch (e: Exception) {
+        _connectionState.value = ConnectionState.ERROR
+        val reason = "${e.javaClass.simpleName}: ${e.message ?: "TLS probe failed"}"
+        _eventsFlow.emit(
+          StreamEvent.StreamError(
+            id = UUID.randomUUID().toString(),
+            code = "TLS_PROBE_FAILED",
+            reason = reason
+          )
+        )
+        _eventsFlow.emit(
+          StreamEvent.Handshake(
+            id = UUID.randomUUID().toString(),
+            message = "[TLS FAILURE] $reason",
+            success = false
+          )
+        )
+      }
     }
   }
 
