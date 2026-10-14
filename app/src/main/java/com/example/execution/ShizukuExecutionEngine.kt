@@ -105,8 +105,8 @@ class ShizukuExecutionEngine : Service() {
     ) = withContext(Dispatchers.IO) {
         require(expectedScriptSha256.matches(Regex("(?i)^[0-9a-f]{64}$"))) { "Invalid expected Rish script digest" }
         require(expectedDexSha256.matches(Regex("(?i)^[0-9a-f]{64}$"))) { "Invalid expected Rish DEX digest" }
-        val scriptBytes = scriptInput.use { readBounded(it, MAX_RISH_SCRIPT_BYTES) }
-        val dexBytes = dexInput.use { readBounded(it, MAX_RISH_DEX_BYTES) }
+        val scriptBytes = scriptInput.use { readLimitedBytes(it, MAX_RISH_SCRIPT_BYTES) }
+        val dexBytes = dexInput.use { readLimitedBytes(it, MAX_RISH_DEX_BYTES) }
         require(scriptBytes.isNotEmpty() && scriptBytes.take(2).toByteArray().contentEquals("#!".toByteArray())) {
             "Rish script must start with a shebang"
         }
@@ -150,8 +150,8 @@ class ShizukuExecutionEngine : Service() {
 
         val started = System.nanoTime()
         val process = builder.start()
-        val stdoutJob = scope.async { readBounded(process.inputStream, MAX_OUTPUT_CHARS) }
-        val stderrJob = scope.async { readBounded(process.errorStream, MAX_OUTPUT_CHARS) }
+        val stdoutJob = scope.async { readBoundedText(process.inputStream, MAX_OUTPUT_CHARS) }
+        val stderrJob = scope.async { readBoundedText(process.errorStream, MAX_OUTPUT_CHARS) }
         var completed = false
         try {
             completed = process.waitFor(request.timeoutSeconds, TimeUnit.SECONDS)
@@ -204,7 +204,7 @@ class ShizukuExecutionEngine : Service() {
 
     private fun shellQuote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
 
-    private fun readBounded(input: InputStream, limit: Int): ByteArray {
+    private fun readLimitedBytes(input: InputStream, limit: Int): ByteArray {
         val output = java.io.ByteArrayOutputStream()
         val buffer = ByteArray(8192)
         var total = 0
@@ -218,7 +218,7 @@ class ShizukuExecutionEngine : Service() {
         return output.toByteArray()
     }
 
-    private suspend fun readBounded(input: InputStream, limit: Int): String = withContext(Dispatchers.IO) {
+    private suspend fun readBoundedText(input: InputStream, limit: Int): String = withContext(Dispatchers.IO) {
         val output = StringBuilder()
         BufferedReader(InputStreamReader(input, Charsets.UTF_8)).use { reader ->
             val buffer = CharArray(2048)
