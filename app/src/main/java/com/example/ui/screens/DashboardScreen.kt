@@ -77,6 +77,7 @@ fun DashboardScreen(
   onTestHandshake: () -> Unit,
   ociAuthStatus: String,
   onOciSignIn: () -> Unit,
+  onRequestShizukuPermission: () -> Unit,
   modifier: Modifier = Modifier
 ) {
   LazyColumn(
@@ -149,6 +150,31 @@ fun DashboardScreen(
             modifier = Modifier.fillMaxWidth().testTag("oci_pkce_sign_in")
           ) {
             Text("Sign in with OCI")
+          }
+        }
+      }
+    }
+
+    item {
+      Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+      ) {
+        Column(
+          modifier = Modifier.padding(16.dp),
+          verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+          Text("Shizuku elevated execution", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+          Text(
+            "Commands are rejected until Shizuku is running, permission is explicitly granted, and a verified Rish bundle is installed.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp
+          )
+          Button(
+            onClick = onRequestShizukuPermission,
+            modifier = Modifier.fillMaxWidth().testTag("request_shizuku_permission")
+          ) {
+            Text("Request Shizuku permission")
           }
         }
       }
