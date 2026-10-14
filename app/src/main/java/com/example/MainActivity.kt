@@ -74,6 +74,29 @@ class MainActivity : ComponentActivity() {
     }
   }
 
+  private var pendingRishScriptUri: Uri? = null
+  private var pendingRishScriptHash: String? = null
+  private var pendingRishDexUri: Uri? = null
+
+  private val rishScriptPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    if (uri == null) {
+      viewModel.showMessage("Rish script selection cancelled.")
+    } else {
+      pendingRishScriptUri = uri
+      promptExpectedRishScriptHash()
+    }
+  }
+
+  private val rishDexPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    if (uri == null) {
+      clearPendingRishProvisioning()
+      viewModel.showMessage("Rish DEX selection cancelled.")
+    } else {
+      pendingRishDexUri = uri
+      promptExpectedRishDexHash()
+    }
+  }
+
   private val rootCaPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { caUri ->
     val identityUri = pendingIdentityUri
     val password = pendingIdentityPassword
@@ -124,7 +147,8 @@ class MainActivity : ComponentActivity() {
           viewModel = viewModel,
           ociAuthStatus = ociAuthStatus.value,
           onOciSignIn = { beginOciSignIn() },
-          onRequestShizukuPermission = { viewModel.requestShizukuPermission() }
+          onRequestShizukuPermission = { viewModel.requestShizukuPermission() },
+          onInstallRishBundle = { beginRishProvisioning() }
         )
       }
     }
@@ -135,6 +159,90 @@ class MainActivity : ComponentActivity() {
     super.onNewIntent(intent)
     setIntent(intent)
     handleOAuthIntent(intent)
+  }
+
+  private fun beginRishProvisioning() {
+    viewModel.showMessage("Select the official Shizuku Rish shell script.")
+    rishScriptPicker.launch(arrayOf("text/x-shellscript", "application/octet-stream"))
+  }
+
+  private fun promptExpectedRishScriptHash() {
+    promptSha256(
+      title = "Verify Rish script",
+      description = "Enter the 64-character SHA-256 digest obtained from the trusted official Shizuku release/source.",
+      onValid = { digest ->
+        pendingRishScriptHash = digest
+        rishDexPicker.launch(arrayOf("application/octet-stream"))
+      }
+    )
+  }
+
+  private fun promptExpectedRishDexHash() {
+    promptSha256(
+      title = "Verify Rish DEX",
+      description = "Enter the 64-character SHA-256 digest obtained from the same trusted Shizuku release/source.",
+      onValid = { digest ->
+        val scriptUri = pendingRishScriptUri
+        val dexUri = pendingRishDexUri
+        val scriptHash = pendingRishScriptHash
+        if (scriptUri == null || dexUri == null || scriptHash == null) {
+          clearPendingRishProvisioning()
+          viewModel.showMessage("Both Rish files and their trusted digests are required.")
+          return@promptSha256
+        }
+        lifecycleScope.launch {
+          try {
+            withContext(Dispatchers.IO) {
+              val scriptStream = contentResolver.openInputStream(scriptUri)
+                ?: throw IllegalStateException("Unable to read selected Rish script")
+              try {
+                val dexStream = contentResolver.openInputStream(dexUri)
+                  ?: throw IllegalStateException("Unable to read selected Rish DEX")
+                try {
+                  viewModel.installRishBundle(scriptStream, dexStream, scriptHash, digest)
+                } finally {
+                  dexStream.close()
+                }
+              } finally {
+                scriptStream.close()
+              }
+            }
+          } catch (error: Exception) {
+            viewModel.showMessage("Rish provisioning failed: " + (error.message ?: error.javaClass.simpleName))
+          } finally {
+            clearPendingRishProvisioning()
+          }
+        }
+      }
+    )
+  }
+
+  private fun promptSha256(title: String, description: String, onValid: (String) -> Unit) {
+    val input = EditText(this).apply {
+      inputType = InputType.TYPE_CLASS_TEXT
+      hint = "64 hexadecimal characters"
+    }
+    AlertDialog.Builder(this)
+      .setTitle(title)
+      .setMessage(description)
+      .setView(input)
+      .setNegativeButton("Cancel") { _, _ -> clearPendingRishProvisioning() }
+      .setPositiveButton("Verify") { _, _ ->
+        val digest = input.text?.toString()?.trim()?.lowercase().orEmpty()
+        if (!digest.matches(Regex("^[0-9a-f]{64}$"))) {
+          clearPendingRishProvisioning()
+          viewModel.showMessage("SHA-256 must contain exactly 64 hexadecimal characters.")
+        } else {
+          onValid(digest)
+        }
+      }
+      .show()
+  }
+
+  private fun clearPendingRishProvisioning() {
+    pendingRishScriptUri = null
+    pendingRishScriptHash = null
+    pendingRishDexUri = null
   }
 
   private fun beginProvisioningIdentity() {
@@ -204,7 +312,8 @@ fun MainControllerApp(
   viewModel: ControllerViewModel,
   ociAuthStatus: String,
   onOciSignIn: () -> Unit,
-  onRequestShizukuPermission: () -> Unit
+  onRequestShizukuPermission: () -> Unit,
+  onInstallRishBundle: () -> Unit
 ) {
   val activeTab by viewModel.activeTab.collectAsStateWithLifecycle()
   val connectionState by viewModel.connectionState.collectAsStateWithLifecycle()
@@ -308,7 +417,8 @@ fun MainControllerApp(
           onTestHandshake = { viewModel.attemptTlsHandshake() },
           ociAuthStatus = ociAuthStatus,
           onOciSignIn = onOciSignIn,
-          onRequestShizukuPermission = onRequestShizukuPermission
+          onRequestShizukuPermission = onRequestShizukuPermission,
+          onInstallRishBundle = onInstallRishBundle
         )
 
         1 -> ComputeQueueScreen(
