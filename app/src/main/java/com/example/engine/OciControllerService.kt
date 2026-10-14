@@ -18,6 +18,7 @@ data class OciExecutionResult(
   val executionProof: ExecutionProof,
   val workerId: String? = null,
   val requestId: String? = null,
+  val workerCpuPct: Float? = null,
   val evidenceSummary: String
 )
 
