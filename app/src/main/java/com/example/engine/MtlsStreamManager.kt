@@ -181,54 +181,94 @@ class MtlsStreamManager(private val appContext: Context? = null) {
       )
 
       if (config.isMtlsEnforced) {
+        var retainedTransport = false
+        var transport: ControlPlaneTransport? = null
         try {
           val context = appContext ?: throw IllegalStateException(
             "Application context is required for device-bound mTLS credentials"
           )
-          val transport = ControlPlaneCredentialStore(context).createTransport(
+          val activeTransport = ControlPlaneCredentialStore(context).createTransport(
             config.endpointHost,
             config.endpointPort
           )
-          try {
-            val health = withContext(Dispatchers.IO) {
-              transport.healthCheck(BuildConfig.VERSION_NAME, timeoutSeconds = 10)
-            }
-            if (health.serverId.isBlank() || health.serverTimeEpochMs <= 0L) {
-              throw SecurityException("Authenticated health response omitted server identity or time evidence")
-            }
-            _connectionState.value = ConnectionState.TLS_AUTHENTICATED
+          transport = activeTransport
+          val started = System.nanoTime()
+          val health = withContext(Dispatchers.IO) {
+            activeTransport.healthCheck(BuildConfig.VERSION_NAME, timeoutSeconds = 10)
+          }
+          val measuredRtt = (System.nanoTime() - started) / 1_000_000f
+          if (health.serverId.isBlank() || health.serverTimeEpochMs <= 0L) {
+            throw SecurityException("Authenticated health response omitted server identity or time evidence")
+          }
+          _connectionState.value = ConnectionState.TLS_AUTHENTICATED
+          _eventsFlow.emit(
+            StreamEvent.Handshake(
+              id = UUID.randomUUID().toString(),
+              message = "[mTLS AUTHENTICATED] Real health RPC completed with trusted server '${health.serverId}'.",
+              success = true
+            )
+          )
+          if (!health.controlPlaneReady || !health.deviceReady) {
+            _connectionState.value = ConnectionState.WAITING_FOR_DEVICE_READINESS
             _eventsFlow.emit(
               StreamEvent.Handshake(
                 id = UUID.randomUUID().toString(),
-                message = "[mTLS AUTHENTICATED] TLS/mTLS RPC completed with trusted server '${health.serverId}'.",
-                success = true
+                message = "[READINESS PENDING] Authenticated server did not confirm both control-plane and device readiness; no device stream was opened.",
+                success = false
               )
             )
-            if (health.controlPlaneReady && health.deviceReady) {
-              _connectionState.value = ConnectionState.READY
-              _eventsFlow.emit(
-                StreamEvent.Handshake(
-                  id = UUID.randomUUID().toString(),
-                  message = "[CONTROL PLANE READY] Authenticated server confirmed both control-plane and device readiness.",
-                  success = true
-                )
-              )
-            } else {
-              _connectionState.value = ConnectionState.WAITING_FOR_DEVICE_READINESS
-              _eventsFlow.emit(
-                StreamEvent.Handshake(
-                  id = UUID.randomUUID().toString(),
-                  message = "[READINESS PENDING] mTLS is authenticated, but the server has not confirmed both control-plane and device readiness.",
-                  success = false
-                )
-              )
-            }
-          } finally {
-            transport.close()
+            return@launch
           }
+
+          liveTransport = activeTransport
+          val observer = activeTransport.openDeviceSession(
+            onCommand = { command -> handleExecutionCommand(command) },
+            onError = { error -> handleLiveStreamError(activeTransport, error) },
+            onCompleted = {
+              scope.launch {
+                if (liveTransport === activeTransport) {
+                  closeLiveTransport(sendCompleted = false)
+                  _connectionState.value = ConnectionState.DISCONNECTED
+                  _eventsFlow.emit(
+                    StreamEvent.Handshake(
+                      id = UUID.randomUUID().toString(),
+                      message = "[STREAM CLOSED] Control plane completed the device session.",
+                      success = false
+                    )
+                  )
+                }
+              }
+            }
+          )
+          telemetryObserver = observer
+          val initialTelemetry = buildDeviceTelemetry()
+          observer.onNext(initialTelemetry)
+          _currentTelemetry.value = _currentTelemetry.value.copy(
+            timestamp = initialTelemetry.observedAtEpochMs,
+            roundTripLatencyMs = measuredRtt,
+            localCpuPct = initialTelemetry.cpuLoadPercent.toFloat(),
+            localMemoryMb = initialTelemetry.availableMemoryBytes / (1024L * 1024L),
+            packetsDispatched = _currentTelemetry.value.packetsDispatched + 1L,
+            streamFps = 1,
+            isSimulated = false,
+            profileLabel = "LIVE mTLS TELEMETRY",
+            instanceIdLabel = initialTelemetry.deviceId,
+            regionLabel = config.endpointHost
+          )
+          _transportMode.value = TransportMode.LIVE_MTLS
+          startLiveTelemetryLoop()
+          retainedTransport = true
+          _connectionState.value = ConnectionState.READY
+          _eventsFlow.emit(
+            StreamEvent.Handshake(
+              id = UUID.randomUUID().toString(),
+              message = "[CONTROL PLANE READY] Authenticated mTLS device stream opened and server readiness was confirmed.",
+              success = true
+            )
+          )
         } catch (e: Exception) {
           _connectionState.value = ConnectionState.ERROR
-          val reason = "${e.javaClass.simpleName}: ${e.message ?: "mTLS health RPC failed"}"
+          val reason = "${e.javaClass.simpleName}: ${e.message ?: "mTLS health or device-stream setup failed"}"
           _eventsFlow.emit(
             StreamEvent.StreamError(
               id = UUID.randomUUID().toString(),
@@ -243,6 +283,11 @@ class MtlsStreamManager(private val appContext: Context? = null) {
               success = false
             )
           )
+        } finally {
+          if (!retainedTransport) {
+            if (liveTransport === transport) closeLiveTransport(sendCompleted = false)
+            else transport?.close()
+          }
         }
         return@launch
       }
