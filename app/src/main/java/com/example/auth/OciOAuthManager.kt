@@ -147,14 +147,34 @@ class OciOAuthManager(
 
     fun storedTokens(): TokenSet? {
         val access = prefs.getString(KEY_ACCESS, null) ?: return null
+        val expiryAt = prefs.getLong(KEY_EXPIRY_AT, -1L)
+        val remaining = if (expiryAt > 0L) {
+            ((expiryAt - System.currentTimeMillis()) / 1000L).coerceAtLeast(0L)
+        } else {
+            null
+        }
         return TokenSet(
             accessToken = access,
             idToken = prefs.getString(KEY_ID, "").orEmpty(),
             refreshToken = prefs.getString(KEY_REFRESH, null),
             tokenType = prefs.getString(KEY_TYPE, "Bearer") ?: "Bearer",
-            expiresInSeconds = prefs.getLong(KEY_EXPIRY, -1L).takeIf { it >= 0 },
+            expiresInSeconds = remaining,
             scope = prefs.getString(KEY_SCOPE, null)
         )
+    }
+
+    suspend fun getValidAccessToken(): String = withContext(Dispatchers.IO) {
+        val access = prefs.getString(KEY_ACCESS, null)
+            ?: throw IllegalStateException("OCI sign-in is required before using the control plane")
+        val expiryAt = prefs.getLong(KEY_EXPIRY_AT, -1L)
+        val now = System.currentTimeMillis()
+        if (expiryAt > now + TOKEN_REFRESH_SKEW_MS) return@withContext access
+        val refreshed = refreshAccessToken()
+        val refreshedExpiryAt = prefs.getLong(KEY_EXPIRY_AT, -1L)
+        if (refreshedExpiryAt <= System.currentTimeMillis()) {
+            throw SecurityException("OCI access token is expired and could not be refreshed")
+        }
+        refreshed.accessToken
     }
 
     fun clearTokens() = prefs.edit().clear().apply()
@@ -181,7 +201,11 @@ class OciOAuthManager(
                 idToken = id,
                 refreshToken = json.optString("refresh_token").takeIf { it.isNotBlank() },
                 tokenType = tokenType,
-                expiresInSeconds = json.optLong("expires_in", -1L).takeIf { it >= 0 },
+                expiresInSeconds = json.optLong("expires_in", -1L).also {
+                if (it !in 1L..MAX_TOKEN_LIFETIME_SECONDS) {
+                    throw IOException("Token response omitted a valid expires_in lifetime")
+                }
+            },
                 scope = json.optString("scope").takeIf { it.isNotBlank() }
             )
         }
@@ -257,6 +281,10 @@ class OciOAuthManager(
             .putString(KEY_REFRESH, tokens.refreshToken)
             .putString(KEY_TYPE, tokens.tokenType)
             .putLong(KEY_EXPIRY, tokens.expiresInSeconds ?: -1L)
+            .putLong(
+                KEY_EXPIRY_AT,
+                tokens.expiresInSeconds?.let { System.currentTimeMillis() + it * 1000L } ?: -1L
+            )
             .putString(KEY_SCOPE, tokens.scope)
             .apply()
     }
@@ -276,6 +304,9 @@ class OciOAuthManager(
         private const val KEY_REFRESH = "refresh_token"
         private const val KEY_TYPE = "token_type"
         private const val KEY_EXPIRY = "expires_in"
+        private const val KEY_EXPIRY_AT = "expires_at_epoch_ms"
+        private const val TOKEN_REFRESH_SKEW_MS = 60_000L
+        private const val MAX_TOKEN_LIFETIME_SECONDS = 31_536_000L
         private const val KEY_SCOPE = "scope"
         private const val KEY_VERIFIER = "pkce_verifier"
         private const val KEY_STATE = "oauth_state"
