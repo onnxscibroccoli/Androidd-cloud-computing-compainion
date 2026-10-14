@@ -106,6 +106,7 @@ grpc-protobuf = { group = "io.grpc", name = "grpc-protobuf", version.ref = "grpc
 grpc-stub = { group = "io.grpc", name = "grpc-stub", version.ref = "grpc" }
 protobuf-java = { group = "com.google.protobuf", name = "protobuf-java", version.ref = "protobuf" }
 shizuku-api = { group = "dev.rikka.shizuku", name = "api", version.ref = "shizuku" }
+shizuku-provider = { group = "dev.rikka.shizuku", name = "provider", version.ref = "shizuku" }
 javax-annotation = { group = "javax.annotation", name = "javax.annotation-api", version.ref = "javaxAnnotation" }
 
 
