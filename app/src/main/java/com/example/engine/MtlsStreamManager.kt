@@ -293,6 +293,156 @@ class MtlsStreamManager(private val appContext: Context? = null) {
     }
   }
 
+
+  private data class CpuCounters(val total: Long, val idle: Long)
+
+  private suspend fun buildDeviceTelemetry(): DeviceTelemetry = withContext(Dispatchers.IO) {
+    val context = appContext ?: throw IllegalStateException("Application context is unavailable")
+    val memoryInfo = ActivityManager.MemoryInfo()
+    (context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager)?.getMemoryInfo(memoryInfo)
+    val cpu = readCpuLoad()
+    val rx = TrafficStats.getTotalRxBytes()
+    val tx = TrafficStats.getTotalTxBytes()
+    DeviceTelemetry.newBuilder()
+      .setDeviceId(deviceId(context))
+      .setObservedAtEpochMs(System.currentTimeMillis())
+      .setCpuLoadPercent(cpu.first)
+      .setAvailableMemoryBytes(memoryInfo.availMem.coerceAtLeast(0L))
+      .setNetworkRxBytes(rx.coerceAtLeast(0L))
+      .setNetworkTxBytes(tx.coerceAtLeast(0L))
+      .setAppVersion(BuildConfig.VERSION_NAME)
+      .putAttributes("cpu_load_measured", cpu.second.toString())
+      .putAttributes("network_counters_available", (rx >= 0L && tx >= 0L).toString())
+      .putAttributes("transport", "authenticated_mtls")
+      .build()
+  }
+
+  @Synchronized
+  private fun readCpuLoad(): Pair<Double, Boolean> {
+    val line = runCatching { File("/proc/stat").useLines { lines -> lines.firstOrNull() } }.getOrNull()
+      ?: return 0.0 to false
+    val values = line.trim().split(" ").filter { it.isNotBlank() }.drop(1).mapNotNull { it.toLongOrNull() }
+    if (values.size < 4) return 0.0 to false
+    val current = CpuCounters(values.sum(), values[3] + (values.getOrNull(4) ?: 0L))
+    val previous = previousCpuCounters
+    previousCpuCounters = current
+    if (previous == null) return 0.0 to false
+    val totalDelta = (current.total - previous.total).coerceAtLeast(0L)
+    val idleDelta = (current.idle - previous.idle).coerceAtLeast(0L)
+    if (totalDelta <= 0L) return 0.0 to false
+    return (((totalDelta - idleDelta).coerceAtLeast(0L).toDouble() / totalDelta.toDouble()) * 100.0)
+      .coerceIn(0.0, 100.0) to true
+  }
+
+  private fun deviceId(context: Context): String {
+    cachedDeviceId?.let { return it }
+    val androidId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID).orEmpty()
+    val digest = MessageDigest.getInstance("SHA-256")
+      .digest((context.packageName + ":" + androidId).toByteArray(Charsets.UTF_8))
+      .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+      .take(32)
+    cachedDeviceId = digest
+    return digest
+  }
+
+  private fun handleExecutionCommand(command: ExecutionCommand) {
+    val now = System.currentTimeMillis()
+    if (command.commandId.isBlank() || command.requestedBy.isBlank() ||
+      command.deadlineEpochMs <= now
+    ) {
+      sendCommandResult(
+        CommandExecutionResult.newBuilder()
+          .setCommandId(command.commandId)
+          .setExitCode(124)
+          .setStderr("Command rejected: missing command identity/requester or expired deadline.")
+          .setDurationMs(0L)
+          .setTimedOut(command.deadlineEpochMs in 1L..now)
+          .build()
+      )
+      return
+    }
+    val handler = executionCommandHandler
+    if (handler == null) {
+      sendCommandResult(
+        CommandExecutionResult.newBuilder()
+          .setCommandId(command.commandId)
+          .setExitCode(126)
+          .setStderr("Command rejected because no Shizuku execution dispatcher is bound.")
+          .setDurationMs(0L)
+          .build()
+      )
+      return
+    }
+    try {
+      handler(command)
+    } catch (error: Exception) {
+      sendCommandResult(
+        CommandExecutionResult.newBuilder()
+          .setCommandId(command.commandId)
+          .setExitCode(126)
+          .setStderr("Command dispatcher rejected the command: " + (error.message ?: error.javaClass.simpleName))
+          .setDurationMs(0L)
+          .build()
+      )
+    }
+  }
+
+  private fun handleLiveStreamError(transport: ControlPlaneTransport?, error: Throwable) {
+    scope.launch {
+      if (transport != null && liveTransport !== transport) return@launch
+      closeLiveTransport(sendCompleted = false)
+      _connectionState.value = ConnectionState.ERROR
+      val reason = error.javaClass.simpleName + ": " + (error.message ?: "gRPC device stream failed")
+      _eventsFlow.emit(
+        StreamEvent.StreamError(
+          id = UUID.randomUUID().toString(),
+          code = "MTLS_DEVICE_STREAM_FAILED",
+          reason = reason
+        )
+      )
+    }
+  }
+
+  private fun startLiveTelemetryLoop() {
+    liveTelemetryJob?.cancel()
+    liveTelemetryJob = scope.launch {
+      while (isActive && telemetryObserver != null) {
+        delay(15_000L)
+        val observer = telemetryObserver ?: break
+        try {
+          val telemetry = buildDeviceTelemetry()
+          observer.onNext(telemetry)
+          _currentTelemetry.value = _currentTelemetry.value.copy(
+            timestamp = telemetry.observedAtEpochMs,
+            localCpuPct = telemetry.cpuLoadPercent.toFloat(),
+            localMemoryMb = telemetry.availableMemoryBytes / (1024L * 1024L),
+            packetsDispatched = _currentTelemetry.value.packetsDispatched + 1L,
+            streamFps = 1,
+            isSimulated = false,
+            profileLabel = "LIVE mTLS TELEMETRY",
+            instanceIdLabel = telemetry.deviceId,
+            regionLabel = _mtlsConfig.value.endpointHost
+          )
+        } catch (error: Exception) {
+          handleLiveStreamError(liveTransport, error)
+          break
+        }
+      }
+    }
+  }
+
+  private fun closeLiveTransport(sendCompleted: Boolean) {
+    liveTelemetryJob?.cancel()
+    liveTelemetryJob = null
+    val observer = telemetryObserver
+    telemetryObserver = null
+    if (sendCompleted) runCatching { observer?.onCompleted() }
+    val transport = liveTransport
+    liveTransport = null
+    transport?.close()
+    _transportMode.value = TransportMode.CANONICAL_PENDING
+  }
+
   fun disconnect() {
     demoStreamingJob?.cancel()
     _connectionState.value = ConnectionState.DISCONNECTED
