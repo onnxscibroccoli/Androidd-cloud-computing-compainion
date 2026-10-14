@@ -2,7 +2,7 @@
 
 ## OAuth/OIDC
 
-The native client is a public OAuth client and does not embed a client secret. It uses Authorization Code + PKCE, a 64-byte CSPRNG input encoded as an 86-character base64url verifier, S256, state validation, OIDC nonce validation, HTTPS discovery/JWKS, RS256 signature verification, issuer/audience/expiry checks, and Android Keystore-backed encrypted token storage. Configure the registered Identity Domain URL, client ID, and exact custom-scheme redirect URI. Register the redirect URI in OCI Identity Domains and declare the matching intent filter in the Android manifest before shipping.
+The native client is a public OAuth client and does not embed a client secret. It uses Authorization Code + PKCE, a 64-byte CSPRNG input encoded as an 86-character base64url verifier, S256, state validation, OIDC nonce validation, HTTPS discovery/JWKS, RS256 signature verification, issuer/audience/expiry checks, and Android Keystore-backed encrypted token storage. Configure the registered Identity Domain URL and client ID. Register the exact redirect URI `com.onnxscibroccoli.omnikali://oauth/callback` in the OCI Identity Domain application. Register the redirect URI in OCI Identity Domains and declare the matching intent filter in the Android manifest before shipping.
 
 ## gRPC mTLS
 
