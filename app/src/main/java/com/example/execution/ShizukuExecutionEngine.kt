@@ -178,12 +178,15 @@ class ShizukuExecutionEngine : Service() {
     }
 
     suspend fun execute(request: ExecutionRequest): ExecutionResult = withContext(Dispatchers.IO) {
-        require(request.commandId.isNotBlank()) { "commandId is required" }
+        require(request.commandId.matches(Regex("^[A-Za-z0-9._:-]{1,128}$"))) { "Invalid commandId" }
         require(request.timeoutSeconds in 1L..MAX_TIMEOUT_SECONDS) { "timeoutSeconds must be 1..900" }
         require(request.executable in ALLOWED_EXECUTABLES) { "Executable is not allowlisted" }
-        require(request.arguments.size <= MAX_ARGUMENTS && request.arguments.all { it.length <= MAX_ARGUMENT_LENGTH }) {
+        require(request.arguments.size <= MAX_ARGUMENTS && request.arguments.all {
+            it.length <= MAX_ARGUMENT_LENGTH && !it.contains('\\u0000')
+        }) {
             "Argument count or size exceeds execution limits"
         }
+        validateCommandPolicy(request.executable, request.arguments)
         if (!hasExecutionPermission()) throw SecurityException("Shizuku binder or permission is unavailable")
 
         val rish = File(noBackupFilesDir, RISH_SCRIPT_NAME)
@@ -252,6 +255,56 @@ class ShizukuExecutionEngine : Service() {
             Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED)
     }
 
+    private fun validateCommandPolicy(executable: String, arguments: List<String>) {
+        when (executable) {
+            "pm" -> require(arguments.firstOrNull() in READ_ONLY_PM_VERBS) {
+                "Only read-only pm commands are allowed"
+            }
+            "cmd" -> require(
+                arguments.size >= 2 &&
+                    arguments[0] == "package" &&
+                    arguments[1] in READ_ONLY_PACKAGE_COMMANDS
+            ) { "Only read-only package queries are allowed through cmd" }
+            "settings" -> require(arguments.firstOrNull() in setOf("get", "list")) {
+                "Only read-only settings commands are allowed"
+            }
+            "dumpsys" -> require(arguments.size == 1 && arguments[0] in READ_ONLY_DUMPSYS_SERVICES) {
+                "Only approved read-only dumpsys services are allowed"
+            }
+            "cat", "stat", "du" -> require(arguments.isNotEmpty() && arguments.all { isSafeReadPath(it) }) {
+                "File access is restricted to approved read-only system paths"
+            }
+            "ls" -> require(arguments.filterNot { it.startsWith("-") }.all { isSafeReadPath(it) }) {
+                "Directory listing is restricted to approved read-only system paths"
+            }
+            "df" -> require(arguments.filterNot { it.startsWith("-") }.all { isSafeReadPath(it) }) {
+                "Filesystem inspection is restricted to approved paths"
+            }
+            "toybox" -> {
+                val applet = arguments.firstOrNull()
+                require(applet in SAFE_TOYBOX_APPLETS) { "This toybox applet is not allowed" }
+                if (applet in setOf("cat", "stat", "du")) {
+                    require(arguments.drop(1).isNotEmpty() && arguments.drop(1).all { isSafeReadPath(it) }) {
+                        "Toybox file access is restricted to approved read-only system paths"
+                    }
+                }
+                if (applet == "ls") {
+                    require(arguments.drop(1).filterNot { it.startsWith("-") }.all { isSafeReadPath(it) }) {
+                        "Toybox directory listing is restricted to approved system paths"
+                    }
+                }
+            }
+            "getprop" -> require(arguments.size <= 1) { "getprop accepts at most one property name" }
+        }
+    }
+
+    private fun isSafeReadPath(path: String): Boolean {
+        if (path.isBlank() || path.contains("..") || path.contains('\\u0000')) return false
+        if (listOf("/mem", "/environ", "/fd/", "/map_files/").any { path.contains(it) }) return false
+        return path in SAFE_SYSTEM_PATHS || SAFE_SYSTEM_PATH_PREFIXES.any { path.startsWith(it) }
+    }
+
+    private fun shellQuote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
     private fun shellQuote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
 
     private fun readLimitedBytes(input: InputStream, limit: Int): ByteArray {
@@ -313,6 +366,19 @@ class ShizukuExecutionEngine : Service() {
         private val ALLOWED_EXECUTABLES = setOf(
             "id", "uname", "getprop", "pm", "cmd", "settings", "dumpsys",
             "ls", "cat", "stat", "df", "du", "ps", "top", "toybox"
+        )
+        private val READ_ONLY_PM_VERBS = setOf("list", "path", "dump", "help")
+        private val READ_ONLY_PACKAGE_COMMANDS = setOf("list", "path", "resolve-activity", "query-activities")
+        private val READ_ONLY_DUMPSYS_SERVICES = setOf(
+            "activity", "window", "package", "meminfo", "cpuinfo", "diskstats",
+            "procstats", "netstats", "power", "display", "input", "thermalservice"
+        )
+        private val SAFE_TOYBOX_APPLETS = setOf(
+            "ls", "cat", "stat", "df", "du", "ps", "top", "uname", "id", "getprop"
+        )
+        private val SAFE_SYSTEM_PATHS = setOf("/", "/proc", "/sys", "/system", "/vendor", "/product", "/apex", "/odm")
+        private val SAFE_SYSTEM_PATH_PREFIXES = listOf(
+            "/proc/", "/sys/", "/system/", "/vendor/", "/product/", "/apex/", "/odm/"
         )
     }
 }
