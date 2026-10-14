@@ -23,6 +23,7 @@ import com.example.model.StreamEvent
 import com.example.model.TelemetrySnapshot
 import com.example.model.TransportMode
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
@@ -493,6 +494,13 @@ class MtlsStreamManager(private val appContext: Context? = null) {
         )
       )
     }
+  }
+
+  fun shutdown() {
+    demoStreamingJob?.cancel()
+    closeLiveTransport(sendCompleted = true)
+    _connectionState.value = ConnectionState.DISCONNECTED
+    scope.cancel()
   }
 
   /**
