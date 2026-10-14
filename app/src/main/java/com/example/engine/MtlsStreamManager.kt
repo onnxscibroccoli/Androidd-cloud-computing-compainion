@@ -89,13 +89,17 @@ class MtlsStreamManager(private val appContext: Context? = null) {
   @Volatile private var cachedDeviceId: String? = null
 
   init {
-    // Initial state is cleanly DISCONNECTED, awaiting user action or configuration
-    _connectionState.value = ConnectionState.DISCONNECTED
+    val initialState = if (_mtlsConfig.value.endpointHost.isBlank()) {
+      ConnectionState.UNCONFIGURED
+    } else {
+      ConnectionState.DISCONNECTED
+    }
+    _connectionState.value = initialState
     scope.launch {
       _eventsFlow.emit(
         StreamEvent.Handshake(
           id = UUID.randomUUID().toString(),
-          message = "[CLIENT INIT] Controller initialized in Sandbox. State: DISCONNECTED. No live OCI socket established.",
+          message = "[CLIENT INIT] Controller initialized without opening a socket. State: ${initialState.name}.",
           success = false
         )
       )
