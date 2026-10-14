@@ -1,6 +1,7 @@
 package com.example.transport
 
 import android.content.Context
+import android.os.Build
 import com.example.transport.proto.ControlPlaneGrpc
 import com.example.transport.proto.DeviceTelemetry
 import com.example.transport.proto.ExecutionCommand
@@ -42,6 +43,9 @@ class ControlPlaneTransport(
         channel?.takeIf { !it.isShutdown && !it.isTerminated }?.let { return it }
         require(host.isNotBlank() && !host.contains("/") && !host.contains("://")) { "Use a DNS hostname only" }
         require(port in 1..65535) { "Invalid control-plane port" }
+        check(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            "TLS 1.3 transport requires Android 10/API 29 or newer"
+        }
         check(identityFile.isFile && identityFile.canRead() && identityFile.length() > 0) {
             "A provisioned per-device PKCS#12 identity is required"
         }
