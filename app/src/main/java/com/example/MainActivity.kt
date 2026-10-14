@@ -78,7 +78,7 @@ class MainActivity : ComponentActivity() {
     val identityUri = pendingIdentityUri
     val password = pendingIdentityPassword
     if (caUri == null || identityUri == null || password == null) {
-      password?.fill('\\u0000')
+      password?.fill('\u0000')
       pendingIdentityUri = null
       pendingIdentityPassword = null
       viewModel.showMessage("mTLS identity and root CA must both be selected.")
@@ -107,7 +107,7 @@ class MainActivity : ComponentActivity() {
       } catch (error: Exception) {
         viewModel.showMessage("mTLS identity import failed: " + (error.message ?: error.javaClass.simpleName))
       } finally {
-        password.fill('\\u0000')
+        password.fill('\u0000')
         pendingIdentityUri = null
         pendingIdentityPassword = null
       }
