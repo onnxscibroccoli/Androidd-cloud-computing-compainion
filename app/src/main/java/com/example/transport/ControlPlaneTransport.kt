@@ -10,8 +10,10 @@ import com.example.transport.proto.HealthCheckRequest
 import com.example.transport.proto.HealthCheckResponse
 import com.example.transport.proto.SubmitExecutionRequest
 import io.grpc.ManagedChannel
+import io.grpc.Metadata
 import io.grpc.Status
 import io.grpc.stub.StreamObserver
+import io.grpc.stub.MetadataUtils
 import io.grpc.okhttp.OkHttpChannelBuilder
 import java.io.File
 import java.io.IOException
@@ -38,7 +40,8 @@ class ControlPlaneTransport(
     private val port: Int,
     private val identityFile: File,
     private val identityPassword: CharArray,
-    private val rootCaPem: ByteArray
+    private val rootCaPem: ByteArray,
+    private val accessToken: String? = null
 ) : AutoCloseable {
     private val appContext = context.applicationContext
     @Volatile private var channel: ManagedChannel? = null
@@ -81,9 +84,15 @@ class ControlPlaneTransport(
 
         val tls = SSLContext.getInstance("TLSv1.3")
         tls.init(keyManagers, arrayOf(trustManager), SecureRandom())
-        val built = OkHttpChannelBuilder.forAddress(host, port)
+        val builder = OkHttpChannelBuilder.forAddress(host, port)
             .sslSocketFactory(tls.socketFactory)
-            .build()
+        if (!accessToken.isNullOrBlank()) {
+            val headers = Metadata().apply {
+                put(AUTHORIZATION_HEADER, "Bearer $accessToken")
+            }
+            builder.intercept(MetadataUtils.newAttachHeadersInterceptor(headers))
+        }
+        val built = builder.build()
         channel = built
         return built
     }
@@ -138,5 +147,10 @@ class ControlPlaneTransport(
         channel?.shutdown()
         channel = null
         identityPassword.fill('\u0000')
+    }
+
+    companion object {
+        private val AUTHORIZATION_HEADER =
+            Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER)
     }
 }
