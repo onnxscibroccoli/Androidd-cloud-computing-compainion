@@ -4,14 +4,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
 import java.security.MessageDigest
-import android.util.Base64
+import java.util.Base64
 
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35])
 class PkceTest {
     @Test fun verifierHasHighEntropyAndValidPkceLength() {
         val verifier = Pkce.generateVerifier()
@@ -22,9 +17,8 @@ class PkceTest {
 
     @Test fun challengeIsS256AndBase64UrlEncoded() {
         val verifier = Pkce.generateVerifier()
-        val expected = Base64.encodeToString(
-            MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.US_ASCII)),
-            Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
+        val expected = Base64.getUrlEncoder().withoutPadding().encodeToString(
+            MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.US_ASCII))
         )
         assertEquals(expected, Pkce.s256Challenge(verifier))
         assertEquals(43, expected.length)
