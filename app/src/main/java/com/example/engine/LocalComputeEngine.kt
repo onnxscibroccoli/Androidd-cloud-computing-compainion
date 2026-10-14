@@ -68,6 +68,7 @@ object LocalComputeEngine {
     onProgress: suspend (Float) -> Unit
   ): BenchmarkResult = withContext(Dispatchers.Default) {
     val startTime = System.currentTimeMillis()
+    val cpuStart = readCpuSnapshot()
     val rounds = iterations.coerceIn(100, 150_000)
     val md = MessageDigest.getInstance("SHA-256")
     var currentHash = "OCI-EDGE-SEED-NONCE-${System.currentTimeMillis()}".toByteArray()
@@ -83,6 +84,7 @@ object LocalComputeEngine {
     }
     onProgress(1.0f)
     val duration = (System.currentTimeMillis() - startTime).coerceAtLeast(1L)
+    val cpuLoad = measureCpuLoad(cpuStart, readCpuSnapshot())
     val hexPrefix = currentHash.take(4).joinToString("") { "%02x".format(it) }
     BenchmarkResult(
       durationMs = duration,
@@ -101,6 +103,7 @@ object LocalComputeEngine {
     onProgress: suspend (Float) -> Unit
   ): BenchmarkResult = withContext(Dispatchers.Default) {
     val startTime = System.currentTimeMillis()
+    val cpuStart = readCpuSnapshot()
     val totalSamples = samples.coerceIn(50_000, 2_000_000)
     var insideCircle = 0L
     val step = (totalSamples / 25).coerceAtLeast(1)
@@ -118,6 +121,7 @@ object LocalComputeEngine {
     }
     onProgress(1.0f)
     val duration = (System.currentTimeMillis() - startTime).coerceAtLeast(1L)
+    val cpuLoad = measureCpuLoad(cpuStart, readCpuSnapshot())
     val estimatedPi = 4.0 * insideCircle.toDouble() / totalSamples.toDouble()
     BenchmarkResult(
       durationMs = duration,
@@ -140,6 +144,7 @@ object LocalComputeEngine {
     onProgress: suspend (Float) -> Unit
   ): BenchmarkResult = withContext(Dispatchers.Default) {
     val startTime = System.currentTimeMillis()
+    val cpuStart = readCpuSnapshot()
     val limit = maxLimit.coerceIn(10_000, 800_000)
     val isPrime = BooleanArray(limit + 1) { true }
     isPrime[0] = false
@@ -166,6 +171,7 @@ object LocalComputeEngine {
     }
     onProgress(1.0f)
     val duration = (System.currentTimeMillis() - startTime).coerceAtLeast(1L)
+    val cpuLoad = measureCpuLoad(cpuStart, readCpuSnapshot())
     BenchmarkResult(
       durationMs = duration,
       operationsCount = limit.toLong(),
@@ -183,6 +189,7 @@ object LocalComputeEngine {
     onProgress: suspend (Float) -> Unit
   ): BenchmarkResult = withContext(Dispatchers.Default) {
     val startTime = System.currentTimeMillis()
+    val cpuStart = readCpuSnapshot()
     val count = batchCount.coerceIn(1_000, 50_000)
     var accumulatedMagnitude = 0.0
     val step = (count / 20).coerceAtLeast(1)
@@ -200,6 +207,7 @@ object LocalComputeEngine {
     }
     onProgress(1.0f)
     val duration = (System.currentTimeMillis() - startTime).coerceAtLeast(1L)
+    val cpuLoad = measureCpuLoad(cpuStart, readCpuSnapshot())
     BenchmarkResult(
       durationMs = duration,
       operationsCount = count.toLong(),
