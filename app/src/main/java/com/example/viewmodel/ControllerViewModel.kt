@@ -168,7 +168,7 @@ class ControllerViewModel(application: Application) : AndroidViewModel(applicati
   }
 
   override fun onCleared() {
-    streamManager.disconnect()
+    streamManager.shutdown()
     shizukuDispatcher.close()
     super.onCleared()
   }
