@@ -325,7 +325,11 @@ fun TelemetryScreen(
 
           TelemetryDetailRow(
             label = "Local CPU Utilization",
-            value = if (telemetry.localCpuPct > 0f) String.format(Locale.US, "%.1f%% (Actual Benchmark)", telemetry.localCpuPct) else "Idle"
+            value = when {
+              telemetry.isSimulated -> String.format(Locale.US, "DEMO %.1f%%", telemetry.localCpuPct)
+              telemetry.localCpuMeasured -> String.format(Locale.US, "%.1f%% (Measured)", telemetry.localCpuPct)
+              else -> "N/A"
+            }
           )
           TelemetryDetailRow(
             label = "Runtime",
