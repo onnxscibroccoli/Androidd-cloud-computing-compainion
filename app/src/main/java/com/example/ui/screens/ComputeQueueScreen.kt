@@ -472,16 +472,27 @@ private fun JobDetailCard(
             )
           } else if (job.speedupRatio > 1.0f) {
             MetricBadge(
-              label = "Model Speedup",
-              value = String.format(Locale.US, "%.1fx (Simulated)", job.speedupRatio),
+              label = if (job.isSimulatedCloud) "Demo Speedup" else "Estimated Speedup",
+              value = if (job.isSimulatedCloud) {
+                String.format(Locale.US, "%.1fx (demo model)", job.speedupRatio)
+              } else {
+                String.format(Locale.US, "%.1fx (estimated baseline)", job.speedupRatio)
+              },
               color = QueueAmber
             )
           }
           MetricBadge(
             label = "Device CPU",
-            value = String.format(Locale.US, "%.0f%%", job.localCpuPct),
+            value = if (job.localCpuPct < 0f) "N/A" else String.format(Locale.US, "%.0f%%", job.localCpuPct),
             color = MaterialTheme.colorScheme.onSurfaceVariant
           )
+          if (job.target != ExecutionTarget.LOCAL_DEVICE) {
+            MetricBadge(
+              label = "Worker CPU",
+              value = if (job.cloudCpuPct < 0f) "N/A" else String.format(Locale.US, "%.0f%%", job.cloudCpuPct),
+              color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+          }
         }
 
         if (job.resultSummary.isNotBlank()) {
