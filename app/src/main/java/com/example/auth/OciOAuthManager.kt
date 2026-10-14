@@ -316,20 +316,46 @@ class OciOAuthManager(
 
 object Pkce {
     private val random = SecureRandom()
+    private const val URL_SAFE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+
     fun generateVerifier(): String = randomUrlSafe(64)
+
     fun s256Challenge(verifier: String): String =
-        Base64.encodeToString(
-            MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.US_ASCII)),
-            Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
+        encodeUrlSafe(
+            MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.US_ASCII))
         )
+
     fun randomUrlSafe(byteCount: Int): String {
         require(byteCount >= 32)
         val bytes = ByteArray(byteCount)
         random.nextBytes(bytes)
-        return Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+        return encodeUrlSafe(bytes)
     }
+
     fun decode(value: String): ByteArray =
         Base64.decode(value, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+
+    private fun encodeUrlSafe(bytes: ByteArray): String {
+        val output = StringBuilder((bytes.size * 4 + 2) / 3)
+        var index = 0
+        while (index < bytes.size) {
+            val first = bytes[index].toInt() and 0xff
+            val hasSecond = index + 1 < bytes.size
+            val hasThird = index + 2 < bytes.size
+            val second = if (hasSecond) bytes[index + 1].toInt() and 0xff else 0
+            val third = if (hasThird) bytes[index + 2].toInt() and 0xff else 0
+            output.append(URL_SAFE_ALPHABET[first ushr 2])
+            output.append(URL_SAFE_ALPHABET[((first and 0x03) shl 4) or (second ushr 4)])
+            if (hasSecond) {
+                output.append(URL_SAFE_ALPHABET[((second and 0x0f) shl 2) or (third ushr 6)])
+            }
+            if (hasThird) {
+                output.append(URL_SAFE_ALPHABET[third and 0x3f])
+            }
+            index += 3
+        }
+        return output.toString()
+    }
 }
 
 private object BuildConfigValues {
