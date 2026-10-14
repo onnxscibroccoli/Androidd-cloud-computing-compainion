@@ -36,7 +36,8 @@ enum class Priority(val label: String) {
 enum class ConnectionState(val label: String, val isReady: Boolean) {
   UNCONFIGURED("UNCONFIGURED", false),
   CONNECTING("CONNECTING", false),
-  TLS_AUTHENTICATED("TLS_AUTHENTICATED", false),
+  TLS_SERVER_VERIFIED("TLS_SERVER_VERIFIED (server certificate only)", false),
+  TLS_AUTHENTICATED("TLS_AUTHENTICATED (mutual TLS)", false),
   WAITING_FOR_DEVICE_READINESS("WAITING_FOR_DEVICE_READINESS", false),
   READY("READY", true),
   DISCONNECTED("DISCONNECTED", false),
@@ -87,14 +88,14 @@ data class TelemetrySnapshot(
 )
 
 data class MtlsConfig(
-  val endpointHost: String = "compute.us-ashburn-1.oraclecloud.com",
+  val endpointHost: String = "",
   val endpointPort: Int = 443,
-  val clientCertSubject: String = "CN=android-controller-demo, O=Prototype, OU=Demo",
-  val clientCertIssuer: String = "CN=Demo Self-Signed Prototype CA",
-  val clientCertFingerprint: String = "DEMO:SIMULATED:CERT:FINGERPRINT:7A:4F:92:B1:08:C3:55:19",
-  val caRootSubject: String = "CN=Demo Local Prototype Root CA",
-  val cipherSuite: String = "TLS_AES_256_GCM_SHA384 (Spec Template)",
-  val tlsVersion: String = "TLSv1.3",
+  val clientCertSubject: String = "NOT_PROVISIONED",
+  val clientCertIssuer: String = "NOT_PROVISIONED",
+  val clientCertFingerprint: String = "NOT_PROVISIONED",
+  val caRootSubject: String = "NOT_PROVISIONED",
+  val cipherSuite: String = "NOT_NEGOTIATED",
+  val tlsVersion: String = "NOT_NEGOTIATED",
   val isMtlsEnforced: Boolean = true,
   val keepAliveIntervalSec: Int = 5,
   val simulatedFastConnectLatencyMs: Int = 15,
