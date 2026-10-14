@@ -5,6 +5,7 @@ import android.app.ActivityManager
 import android.net.TrafficStats
 import android.provider.Settings
 import com.example.BuildConfig
+import com.example.auth.OciOAuthManager
 import com.example.transport.ControlPlaneCredentialStore
 import com.example.transport.ControlPlaneTransport
 import com.example.transport.proto.CommandExecutionResult
@@ -180,9 +181,11 @@ class MtlsStreamManager(private val appContext: Context? = null) {
           val context = appContext ?: throw IllegalStateException(
             "Application context is required for device-bound mTLS credentials"
           )
+          val accessToken = OciOAuthManager(context).getValidAccessToken()
           val activeTransport = ControlPlaneCredentialStore(context).createTransport(
             config.endpointHost,
-            config.endpointPort
+            config.endpointPort,
+            accessToken
           )
           transport = activeTransport
           val started = System.nanoTime()
