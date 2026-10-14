@@ -155,6 +155,7 @@ class MainActivity : ComponentActivity() {
           viewModel = viewModel,
           ociAuthStatus = ociAuthStatus.value,
           onOciSignIn = { beginOciSignIn() },
+          onProvisionIdentity = onProvisionIdentity,
           onRequestShizukuPermission = { beginShizukuPermissionRequest() },
           onInstallRishBundle = { beginRishProvisioning() },
           onStopShizukuBackgroundExecution = { viewModel.stopShizukuBackgroundExecution() }
@@ -331,6 +332,7 @@ fun MainControllerApp(
   viewModel: ControllerViewModel,
   ociAuthStatus: String,
   onOciSignIn: () -> Unit,
+  onProvisionIdentity: () -> Unit,
   onRequestShizukuPermission: () -> Unit,
   onInstallRishBundle: () -> Unit,
   onStopShizukuBackgroundExecution: () -> Unit
