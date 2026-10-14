@@ -79,6 +79,7 @@ fun DashboardScreen(
   onOciSignIn: () -> Unit,
   onRequestShizukuPermission: () -> Unit,
   onInstallRishBundle: () -> Unit,
+  onStopShizukuBackgroundExecution: () -> Unit,
   modifier: Modifier = Modifier
 ) {
   LazyColumn(
@@ -182,6 +183,12 @@ fun DashboardScreen(
             modifier = Modifier.fillMaxWidth().testTag("install_verified_rish_bundle")
           ) {
             Text("Install verified Rish bundle")
+          }
+          Button(
+            onClick = onStopShizukuBackgroundExecution,
+            modifier = Modifier.fillMaxWidth().testTag("stop_shizuku_background_service")
+          ) {
+            Text("Stop Shizuku background service")
           }
         }
       }
