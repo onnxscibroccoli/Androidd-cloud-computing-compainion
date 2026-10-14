@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.security.MessageDigest
+import java.io.File
 import kotlin.coroutines.coroutineContext
 import kotlin.random.Random
 
@@ -11,7 +12,8 @@ data class BenchmarkResult(
   val durationMs: Long,
   val operationsCount: Long,
   val summary: String,
-  val localCpuPct: Float
+  val localCpuPct: Float,
+  val localCpuMeasured: Boolean = false
 )
 
 object LocalComputeEngine {
@@ -25,6 +27,7 @@ object LocalComputeEngine {
     onProgress: suspend (Float) -> Unit
   ): BenchmarkResult = withContext(Dispatchers.Default) {
     val startTime = System.currentTimeMillis()
+    val cpuStart = readCpuSnapshot()
     val n = dimension.coerceIn(64, 384)
     val a = Array(n) { FloatArray(n) { Random.nextFloat() } }
     val b = Array(n) { FloatArray(n) { Random.nextFloat() } }
@@ -46,12 +49,14 @@ object LocalComputeEngine {
     }
     onProgress(1.0f)
     val duration = (System.currentTimeMillis() - startTime).coerceAtLeast(1L)
+    val cpuLoad = measureCpuLoad(cpuStart, readCpuSnapshot())
     val gflops = (ops.toDouble() / (duration * 1_000_000.0)).toFloat()
     BenchmarkResult(
       durationMs = duration,
       operationsCount = ops,
       summary = "Computed ${n}x${n} FP32 matrix ($ops FLOPs) @ %.2f GFLOPS. Checksum: %.3f".format(gflops, c[0][0]),
-      localCpuPct = (65f + Random.nextFloat() * 25f).coerceIn(40f, 95f)
+      localCpuPct = cpuLoad ?: 0f,
+      localCpuMeasured = cpuLoad != null
     )
   }
 
@@ -83,7 +88,8 @@ object LocalComputeEngine {
       durationMs = duration,
       operationsCount = rounds.toLong(),
       summary = "Completed $rounds SHA-256 rounds. Final digest prefix: 0x$hexPrefix... (${(rounds * 1000L) / duration} H/s)",
-      localCpuPct = (75f + Random.nextFloat() * 20f).coerceIn(50f, 98f)
+      localCpuPct = cpuLoad ?: 0f,
+      localCpuMeasured = cpuLoad != null
     )
   }
 
@@ -121,7 +127,8 @@ object LocalComputeEngine {
         kotlin.math.abs(estimatedPi - Math.PI) / Math.PI * 100.0,
         totalSamples
       ),
-      localCpuPct = (55f + Random.nextFloat() * 30f).coerceIn(40f, 90f)
+      localCpuPct = cpuLoad ?: 0f,
+      localCpuMeasured = cpuLoad != null
     )
   }
 
@@ -163,7 +170,8 @@ object LocalComputeEngine {
       durationMs = duration,
       operationsCount = limit.toLong(),
       summary = "Discovered %,d prime numbers up to %,d in ${duration}ms".format(count, limit),
-      localCpuPct = (60f + Random.nextFloat() * 25f).coerceIn(45f, 92f)
+      localCpuPct = cpuLoad ?: 0f,
+      localCpuMeasured = cpuLoad != null
     )
   }
 
@@ -199,7 +207,36 @@ object LocalComputeEngine {
         count,
         accumulatedMagnitude / count
       ),
-      localCpuPct = (45f + Random.nextFloat() * 20f).coerceIn(30f, 75f)
+      localCpuPct = cpuLoad ?: 0f,
+      localCpuMeasured = cpuLoad != null
     )
   }
+  private data class CpuSnapshot(val total: Long, val idle: Long)
+
+  private fun readCpuSnapshot(): CpuSnapshot? = runCatching {
+    val line = File("/proc/stat").useLines { lines -> lines.firstOrNull() }
+      ?: return@runCatching null
+    val fields = line.trim().split(" ").filter { it.isNotBlank() }
+    if (fields.firstOrNull() != "cpu" || fields.size < 5) return@runCatching null
+    val counters = fields.drop(1).map { it.toLongOrNull() ?: return@runCatching null }
+    CpuSnapshot(
+      total = counters.sum(),
+      idle = counters[3] + (counters.getOrNull(4) ?: 0L)
+    )
+  }.getOrNull()
+
+  private fun measureCpuLoad(start: CpuSnapshot?, end: CpuSnapshot?): Float? {
+    if (start == null || end == null) return null
+    val totalDelta = end.total - start.total
+    val idleDelta = end.idle - start.idle
+    if (totalDelta <= 0L || idleDelta < 0L) return null
+    return (((totalDelta - idleDelta).coerceAtLeast(0L).toDouble() / totalDelta.toDouble()) * 100.0)
+      .toFloat()
+      .coerceIn(0f, 100f)
+  }
+
+  private fun cpuSummary(cpuLoad: Float?): String =
+    if (cpuLoad == null) " System CPU load measurement unavailable."
+    else " Measured system CPU load: %.1f%%.".format(cpuLoad)
+
 }
