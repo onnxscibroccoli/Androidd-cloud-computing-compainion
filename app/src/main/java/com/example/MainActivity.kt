@@ -1,6 +1,9 @@
 package com.example
 
+import android.Manifest
 import android.os.Bundle
+import android.os.Build
+import android.content.pm.PackageManager
 import android.content.Intent
 import android.net.Uri
 import android.app.AlertDialog
@@ -64,6 +67,11 @@ class MainActivity : ComponentActivity() {
   private var oauthManager: OciOAuthManager? = null
   private var pendingIdentityUri: Uri? = null
   private var pendingIdentityPassword: CharArray? = null
+
+  private val notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+    if (granted) viewModel.requestShizukuPermission()
+    else viewModel.showMessage("Notification permission is required for visible background execution.")
+  }
 
   private val identityPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
     if (uri == null) {
@@ -147,7 +155,7 @@ class MainActivity : ComponentActivity() {
           viewModel = viewModel,
           ociAuthStatus = ociAuthStatus.value,
           onOciSignIn = { beginOciSignIn() },
-          onRequestShizukuPermission = { viewModel.requestShizukuPermission() },
+          onRequestShizukuPermission = { beginShizukuPermissionRequest() },
           onInstallRishBundle = { beginRishProvisioning() },
           onStopShizukuBackgroundExecution = { viewModel.stopShizukuBackgroundExecution() }
         )
@@ -160,6 +168,16 @@ class MainActivity : ComponentActivity() {
     super.onNewIntent(intent)
     setIntent(intent)
     handleOAuthIntent(intent)
+  }
+
+  private fun beginShizukuPermissionRequest() {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+      checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+    ) {
+      notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+    } else {
+      viewModel.requestShizukuPermission()
+    }
   }
 
   private fun beginRishProvisioning() {
