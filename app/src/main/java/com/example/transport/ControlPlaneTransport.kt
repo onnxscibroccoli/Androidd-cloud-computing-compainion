@@ -41,7 +41,7 @@ class ControlPlaneTransport(
     private val identityFile: File,
     private val identityPassword: CharArray,
     private val rootCaPem: ByteArray,
-    private val accessToken: String? = null
+    private val accessToken: String
 ) : AutoCloseable {
     private val appContext = context.applicationContext
     @Volatile private var channel: ManagedChannel? = null
@@ -56,6 +56,7 @@ class ControlPlaneTransport(
             "TLS 1.3 transport requires Android 10/API 29 or newer"
         }
         check(rootCaPem.isNotEmpty()) { "A trusted root CA bundle is required" }
+        check(accessToken.isNotBlank()) { "An OCI OAuth access token is required for control-plane RPCs" }
 
         val keyStore = KeyStore.getInstance("PKCS12")
         identityFile.inputStream().use { keyStore.load(it, identityPassword) }
@@ -84,12 +85,10 @@ class ControlPlaneTransport(
         tls.init(keyManagers, arrayOf(trustManager), SecureRandom())
         val builder = OkHttpChannelBuilder.forAddress(host, port)
             .sslSocketFactory(tls.socketFactory)
-        if (!accessToken.isNullOrBlank()) {
-            val headers = Metadata().apply {
-                put(AUTHORIZATION_HEADER, "Bearer $accessToken")
-            }
-            builder.intercept(MetadataUtils.newAttachHeadersInterceptor(headers))
+        val headers = Metadata().apply {
+            put(AUTHORIZATION_HEADER, "Bearer $accessToken")
         }
+        builder.intercept(MetadataUtils.newAttachHeadersInterceptor(headers))
         val built = builder.build()
         channel = built
         return built
