@@ -58,7 +58,7 @@ class MtlsStreamManager(private val appContext: Context? = null) {
   private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
   val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
-  private val _transportMode = MutableStateFlow(TransportMode.SIMULATED_DEMO)
+  private val _transportMode = MutableStateFlow(TransportMode.CANONICAL_PENDING)
   val transportMode: StateFlow<TransportMode> = _transportMode.asStateFlow()
 
   private val _mtlsConfig = MutableStateFlow(MtlsConfig())
@@ -490,6 +490,7 @@ class MtlsStreamManager(private val appContext: Context? = null) {
 
   fun disconnect() {
     demoStreamingJob?.cancel()
+    closeLiveTransport(sendCompleted = true)
     _connectionState.value = ConnectionState.DISCONNECTED
     scope.launch {
       _eventsFlow.emit(
@@ -510,11 +511,13 @@ class MtlsStreamManager(private val appContext: Context? = null) {
     if (!enable) {
       demoStreamingJob?.cancel()
       demoStreamingJob = null
+      _transportMode.value = if (liveTransport != null) TransportMode.LIVE_MTLS else TransportMode.CANONICAL_PENDING
       _currentTelemetry.value = _currentTelemetry.value.copy(streamFps = 0)
       return
     }
 
     if (demoStreamingJob?.isActive == true) return
+    _transportMode.value = TransportMode.SIMULATED_DEMO
 
     demoStreamingJob = scope.launch {
       var packetsIngested = 0L
