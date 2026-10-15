@@ -16,6 +16,9 @@ val controlPlaneProtoOutput = layout.buildDirectory.dir("generated/source/contro
 val generateControlPlaneProto by tasks.registering(Exec::class) {
   inputs.file(controlPlaneProtoFile)
   outputs.dir(controlPlaneProtoOutput)
+  notCompatibleWithConfigurationCache(
+    "Exec generateControlPlaneProto resolves protoc/grpc configuration files at execution time"
+  )
   doFirst {
     val protoc = protocCompiler.singleFile
     val grpcPlugin = grpcCompiler.singleFile
