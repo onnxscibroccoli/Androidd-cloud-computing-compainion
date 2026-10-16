@@ -1,0 +1,190 @@
+name: Android controller CI and release
+
+on:
+  push:
+    branches:
+      - main
+      - "feat/**"
+      - "fix/**"
+      - "docs/**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: android-controller-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Compile, test, lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      OCI_CLIENT_ID: ${{ secrets.OCI_CLIENT_ID }}
+      OCI_DOMAIN_URL: ${{ secrets.OCI_DOMAIN_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android SDK components
+        run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Install Gradle 9.3.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.3.1"
+
+      - name: Generate Gradle Wrapper when absent
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -x ./gradlew || ! -s gradle/wrapper/gradle-wrapper.jar ]]; then
+            TMP_WRAPPER="$RUNNER_TEMP/wrapper-project"
+            mkdir -p "$TMP_WRAPPER" gradle/wrapper
+            printf 'rootProject.name = "wrapper-bootstrap"\n' > "$TMP_WRAPPER/settings.gradle"
+            : > "$TMP_WRAPPER/build.gradle"
+            gradle -p "$TMP_WRAPPER" --no-configuration-cache wrapper --gradle-version 9.3.1 --distribution-type bin
+            cp "$TMP_WRAPPER/gradlew" ./gradlew
+            cp "$TMP_WRAPPER/gradlew.bat" ./gradlew.bat
+            cp "$TMP_WRAPPER/gradle/wrapper/gradle-wrapper.jar" gradle/wrapper/gradle-wrapper.jar
+            cp "$TMP_WRAPPER/gradle/wrapper/gradle-wrapper.properties" gradle/wrapper/gradle-wrapper.properties
+          fi
+          chmod +x ./gradlew
+          test -s gradle/wrapper/gradle-wrapper.jar
+          ./gradlew --no-configuration-cache --version
+
+      - name: Create ephemeral debug signing key
+        run: |
+          keytool -genkeypair -v             -keystore debug.keystore             -storepass android             -alias androiddebugkey             -keypass android             -keyalg RSA -keysize 2048 -validity 10000             -dname "CN=Android Debug,O=Android,C=US"
+
+      - name: Compile, run offline unit tests and lint
+        run: |
+          ./gradlew --no-daemon --stacktrace testDebugUnitTest lintDebug
+          ./gradlew --no-daemon --stacktrace assembleDebug
+
+      - name: Verify debug APK
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -v 4 "$APK"
+          sha256sum "$APK" | tee app-debug.apk.sha256
+
+      - name: Upload verified debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: controller-debug-apk
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app-debug.apk.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Sign production controller APK
+    needs: verify
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      OCI_CLIENT_ID: ${{ secrets.OCI_CLIENT_ID }}
+      OCI_DOMAIN_URL: ${{ secrets.OCI_DOMAIN_URL }}
+      STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android SDK components
+        run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Install Gradle 9.3.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.3.1"
+
+      - name: Generate Gradle Wrapper when absent
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -x ./gradlew || ! -s gradle/wrapper/gradle-wrapper.jar ]]; then
+            TMP_WRAPPER="$RUNNER_TEMP/wrapper-project"
+            mkdir -p "$TMP_WRAPPER" gradle/wrapper
+            printf 'rootProject.name = "wrapper-bootstrap"\n' > "$TMP_WRAPPER/settings.gradle"
+            : > "$TMP_WRAPPER/build.gradle"
+            gradle -p "$TMP_WRAPPER" --no-configuration-cache wrapper --gradle-version 9.3.1 --distribution-type bin
+            cp "$TMP_WRAPPER/gradlew" ./gradlew
+            cp "$TMP_WRAPPER/gradlew.bat" ./gradlew.bat
+            cp "$TMP_WRAPPER/gradle/wrapper/gradle-wrapper.jar" gradle/wrapper/gradle-wrapper.jar
+            cp "$TMP_WRAPPER/gradle/wrapper/gradle-wrapper.properties" gradle/wrapper/gradle-wrapper.properties
+          fi
+          chmod +x ./gradlew
+          test -s gradle/wrapper/gradle-wrapper.jar
+          ./gradlew --no-configuration-cache --version
+
+      - name: Decode production signing keystore
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          test -n "$RELEASE_KEYSTORE_BASE64" || { echo "::error::Missing RELEASE_KEYSTORE_BASE64"; exit 1; }
+          test -n "$OCI_CLIENT_ID" || { echo "::error::Missing OCI_CLIENT_ID"; exit 1; }
+          test -n "$OCI_DOMAIN_URL" || { echo "::error::Missing OCI_DOMAIN_URL"; exit 1; }
+          case "$OCI_DOMAIN_URL" in https://*) ;; *) echo "::error::OCI_DOMAIN_URL must use HTTPS"; exit 1 ;; esac
+          test -n "$STORE_PASSWORD" || { echo "::error::Missing KEYSTORE_PASSWORD"; exit 1; }
+          test -n "$KEY_PASSWORD" || { echo "::error::Missing KEY_PASSWORD"; exit 1; }
+          test -n "$KEY_ALIAS" || { echo "::error::Missing KEY_ALIAS"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/signing"
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/signing/release.jks"
+          test -s "$RUNNER_TEMP/signing/release.jks"
+          chmod 600 "$RUNNER_TEMP/signing/release.jks"
+          echo "KEYSTORE_PATH=$RUNNER_TEMP/signing/release.jks" >> "$GITHUB_ENV"
+          keytool -list -keystore "$RUNNER_TEMP/signing/release.jks" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
+
+      - name: Build signed release APK
+        run: ./gradlew --no-daemon --stacktrace assembleRelease
+
+      - name: Verify signed release APK and calculate SHA-256
+        run: |
+          set -euo pipefail
+          SOURCE="app/build/outputs/apk/release/app-release.apk"
+          test -s "$SOURCE"
+          cp "$SOURCE" controller.apk
+          BT="$ANDROID_HOME/build-tools/36.0.0"
+          "$BT/apksigner" verify --verbose --print-certs controller.apk
+          "$BT/zipalign" -c -v 4 controller.apk
+          sha256sum controller.apk | tee controller.apk.sha256
+
+      - name: Upload signed controller APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: controller-release-apk
+          path: |
+            controller.apk
+            controller.apk.sha256
+          if-no-files-found: error
+          retention-days: 14

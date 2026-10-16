@@ -8,6 +8,35 @@ plugins {
   alias(libs.plugins.google.services)
 }
 
+val protocCompiler by configurations.creating
+val grpcCompiler by configurations.creating
+val controlPlaneProtoFile = layout.projectDirectory.file("src/main/proto/control_plane.proto")
+val controlPlaneProtoOutput = layout.buildDirectory.dir("generated/source/controlPlaneProto/main/java")
+
+val generateControlPlaneProto by tasks.registering(Exec::class) {
+  inputs.file(controlPlaneProtoFile)
+  outputs.dir(controlPlaneProtoOutput)
+  notCompatibleWithConfigurationCache(
+    "Exec generateControlPlaneProto resolves protoc/grpc configuration files at execution time"
+  )
+  doFirst {
+    val protoc = protocCompiler.singleFile
+    val grpcPlugin = grpcCompiler.singleFile
+    check(protoc.setExecutable(true)) { "Unable to make protoc executable" }
+    check(grpcPlugin.setExecutable(true)) { "Unable to make gRPC protoc plugin executable" }
+    val output = controlPlaneProtoOutput.get().asFile
+    output.mkdirs()
+    commandLine(
+      protoc.absolutePath,
+      "--proto_path=${controlPlaneProtoFile.asFile.parentFile.absolutePath}",
+      "--java_out=${output.absolutePath}",
+      "--plugin=protoc-gen-grpc=${grpcPlugin.absolutePath}",
+      "--grpc_out=${output.absolutePath}",
+      controlPlaneProtoFile.asFile.absolutePath
+    )
+  }
+}
+
 android {
   namespace = "com.example"
   compileSdk = 36
@@ -18,6 +47,10 @@ android {
     targetSdk = 36
     versionCode = 1
     versionName = "1.0"
+    val ociClientId = (System.getenv("OCI_CLIENT_ID") ?: "").replace("\\", "\\\\").replace("\"", "\\\"")
+    val ociDomainUrl = (System.getenv("OCI_DOMAIN_URL") ?: "").replace("\\", "\\\\").replace("\"", "\\\"")
+    buildConfigField("String", "OCI_CLIENT_ID", "\"$ociClientId\"")
+    buildConfigField("String", "OCI_DOMAIN_URL", "\"$ociDomainUrl\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -29,7 +62,7 @@ android {
       val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
       storeFile = file(keystorePath)
       storePassword = System.getenv("STORE_PASSWORD")
-      keyAlias = "upload"
+      keyAlias = System.getenv("KEY_ALIAS") ?: "upload"
       keyPassword = System.getenv("KEY_PASSWORD")
     }
     create("debugConfig") {
@@ -59,11 +92,11 @@ android {
     sourceCompatibility = JavaVersion.VERSION_11
     targetCompatibility = JavaVersion.VERSION_11
   }
+  sourceSets.getByName("main").java.srcDir(controlPlaneProtoOutput.get().asFile)
   buildFeatures {
     compose = true
     buildConfig = true
   }
-  testOptions { unitTests { isIncludeAndroidResources = true } }
   dependenciesInfo {
     includeInApk = false
     includeInBundle = true
@@ -79,10 +112,21 @@ secrets {
 }
 
 googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
+tasks.named("preBuild").configure { dependsOn(generateControlPlaneProto) }
 
 // Some unused dependencies are commented out below instead of being removed.
 // This makes it easy to add them back in the future if needed.
 dependencies {
+  add(protocCompiler.name, "com.google.protobuf:protoc:4.30.2:linux-x86_64@exe")
+  add(grpcCompiler.name, "io.grpc:protoc-gen-grpc-java:1.70.0:linux-x86_64@exe")
+  implementation(libs.androidx.security.crypto)
+  implementation(libs.grpc.okhttp)
+  implementation(libs.grpc.protobuf)
+  implementation(libs.grpc.stub)
+  implementation(libs.protobuf.java)
+  implementation(libs.javax.annotation)
+  implementation(libs.shizuku.api)
+  implementation(libs.shizuku.provider)
   implementation(platform(libs.androidx.compose.bom))
   implementation(platform(libs.firebase.bom))
   // implementation(libs.accompanist.permissions)
@@ -127,11 +171,9 @@ dependencies {
   // implementation(libs.play.services.location)
   implementation(libs.retrofit)
   testImplementation(libs.androidx.compose.ui.test.junit4)
-  testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)
   testImplementation(libs.junit)
   testImplementation(libs.kotlinx.coroutines.test)
-  testImplementation(libs.robolectric)
   androidTestImplementation(platform(libs.androidx.compose.bom))
   androidTestImplementation(libs.androidx.compose.ui.test.junit4)
   androidTestImplementation(libs.androidx.espresso.core)

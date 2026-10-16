@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -74,6 +75,11 @@ fun DashboardScreen(
   onDispatchPreset: (CommandType, ExecutionTarget) -> Unit,
   onNavigateToTasks: () -> Unit,
   onTestHandshake: () -> Unit,
+  ociAuthStatus: String,
+  onOciSignIn: () -> Unit,
+  onRequestShizukuPermission: () -> Unit,
+  onInstallRishBundle: () -> Unit,
+  onStopShizukuBackgroundExecution: () -> Unit,
   modifier: Modifier = Modifier
 ) {
   LazyColumn(
@@ -124,6 +130,68 @@ fun DashboardScreen(
     // Explicit Demo Notice
     item {
       DemoHonestyBanner()
+    }
+
+    item {
+      Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+      ) {
+        Column(
+          modifier = Modifier.padding(16.dp),
+          verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+          Text("OCI Identity Domain", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+          Text(
+            text = ociAuthStatus,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp
+          )
+          Button(
+            onClick = onOciSignIn,
+            modifier = Modifier.fillMaxWidth().testTag("oci_pkce_sign_in")
+          ) {
+            Text("Sign in with OCI")
+          }
+        }
+      }
+    }
+
+    item {
+      Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+      ) {
+        Column(
+          modifier = Modifier.padding(16.dp),
+          verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+          Text("Shizuku elevated execution", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+          Text(
+            "Commands are rejected until Shizuku is running, permission is explicitly granted, and a verified Rish bundle is installed.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp
+          )
+          Button(
+            onClick = onRequestShizukuPermission,
+            modifier = Modifier.fillMaxWidth().testTag("request_shizuku_permission")
+          ) {
+            Text("Request Shizuku permission")
+          }
+          Button(
+            onClick = onInstallRishBundle,
+            modifier = Modifier.fillMaxWidth().testTag("install_verified_rish_bundle")
+          ) {
+            Text("Install verified Rish bundle")
+          }
+          Button(
+            onClick = onStopShizukuBackgroundExecution,
+            modifier = Modifier.fillMaxWidth().testTag("stop_shizuku_background_service")
+          ) {
+            Text("Stop Shizuku background service")
+          }
+        }
+      }
     }
 
     // Connection & mTLS Specification Banner
@@ -189,7 +257,11 @@ fun DashboardScreen(
         ) {
           MetricMiniCard(
             title = "LOCAL CPU BENCHMARK",
-            value = if (telemetry.localCpuPct > 0f) String.format(Locale.US, "%.1f%%", telemetry.localCpuPct) else "Idle",
+            value = when {
+              telemetry.isSimulated -> String.format(Locale.US, "DEMO %.1f%%", telemetry.localCpuPct)
+              telemetry.localCpuMeasured -> String.format(Locale.US, "%.1f%%", telemetry.localCpuPct)
+              else -> "N/A"
+            },
             subtitle = "Actual On-Device Measure",
             icon = Icons.Default.Memory,
             accentColor = SecurityGreen,
@@ -287,7 +359,7 @@ fun DashboardScreen(
               PresetTriggerButton(
                 title = "Edge Telemetry",
                 subtitle = "8k sensor frames",
-                target = "Hybrid (25% Local / 75% Demo)",
+                target = "Hybrid (25% Local / 75% OCI mTLS)",
                 icon = Icons.Default.Memory,
                 color = StreamCyan,
                 onClick = { onDispatchPreset(CommandType.SENSOR_TELEMETRY_BATCH, ExecutionTarget.HYBRID_SPLIT) }

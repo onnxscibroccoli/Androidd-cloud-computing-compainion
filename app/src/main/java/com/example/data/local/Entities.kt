@@ -1,6 +1,7 @@
 package com.example.data.local
 
 import androidx.room.Entity
+import androidx.room.ColumnInfo
 import androidx.room.PrimaryKey
 import com.example.model.CommandType
 import com.example.model.ComputeJob
@@ -22,9 +23,11 @@ data class ComputeJobEntity(
   val resultSummary: String,
   val speedupRatio: Float,
   val localCpuPct: Float,
+  @ColumnInfo(defaultValue = "0") val localCpuMeasured: Boolean = false,
   val cloudCpuPct: Float,
   val timestamp: Long,
-  val error: String?
+  val error: String?,
+  @ColumnInfo(defaultValue = "1") val isSimulatedCloud: Boolean = false
 ) {
   fun toDomain(): ComputeJob {
     return ComputeJob(
@@ -40,9 +43,11 @@ data class ComputeJobEntity(
       resultSummary = resultSummary,
       speedupRatio = speedupRatio,
       localCpuPct = localCpuPct,
+      localCpuMeasured = localCpuMeasured,
       cloudCpuPct = cloudCpuPct,
       timestamp = timestamp,
-      error = error
+      error = error,
+      isSimulatedCloud = isSimulatedCloud
     )
   }
 
@@ -61,9 +66,11 @@ data class ComputeJobEntity(
         resultSummary = job.resultSummary,
         speedupRatio = job.speedupRatio,
         localCpuPct = job.localCpuPct,
+        localCpuMeasured = job.localCpuMeasured,
         cloudCpuPct = job.cloudCpuPct,
         timestamp = job.timestamp,
-        error = job.error
+        error = job.error,
+        isSimulatedCloud = job.isSimulatedCloud
       )
     }
   }

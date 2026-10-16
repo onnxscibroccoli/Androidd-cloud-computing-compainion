@@ -7,7 +7,6 @@ import com.example.engine.BenchmarkResult
 import com.example.engine.LocalComputeEngine
 import com.example.engine.MtlsStreamManager
 import com.example.engine.OciControllerService
-import com.example.engine.DemoOciControllerService
 import com.example.engine.ExecutionProof
 import com.example.model.CommandType
 import com.example.model.ComputeJob
@@ -34,7 +33,7 @@ import java.util.concurrent.ConcurrentHashMap
 class ComputeRepository(
   private val database: AppDatabase,
   private val streamManager: MtlsStreamManager,
-  private val ociControllerService: OciControllerService = DemoOciControllerService(streamManager)
+  private val ociControllerService: OciControllerService = com.example.engine.UnconfiguredOciControllerService()
 ) {
   private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
   private val activeJobs = ConcurrentHashMap<String, Job>()
@@ -79,6 +78,7 @@ class ComputeRepository(
         val result: BenchmarkResult
         var speedupRatio = 1.0f
         var isSimulated = false
+        var workerCpuPct: Float? = null
 
         when (job.target) {
           ExecutionTarget.LOCAL_DEVICE -> {
@@ -99,6 +99,7 @@ class ComputeRepository(
             val cloudExecution = ociControllerService.submit(job) { progress ->
               updateProgress(job.id, progress)
             }
+            workerCpuPct = cloudExecution.workerCpuPct
             result = cloudExecution.benchmark.copy(
               summary = "${cloudExecution.executionProof}: ${cloudExecution.evidenceSummary} ${cloudExecution.benchmark.summary}"
             )
@@ -131,6 +132,7 @@ class ComputeRepository(
             val localResult = localDeferred.await()
             val cloudExecution = cloudDeferred.await()
             val cloudResult = cloudExecution.benchmark
+            workerCpuPct = cloudExecution.workerCpuPct
 
             val totalDuration = maxOf(localResult.durationMs, cloudResult.durationMs)
             val totalOps = localResult.operationsCount + cloudResult.operationsCount
@@ -145,7 +147,8 @@ class ComputeRepository(
               durationMs = totalDuration,
               operationsCount = totalOps,
               summary = "[HYBRID] Local Actual + Cloud ${cloudExecution.executionProof}. ${cloudExecution.evidenceSummary} Local=${localResult.durationMs}ms, cloud=${cloudResult.durationMs}ms.",
-              localCpuPct = localResult.localCpuPct * 0.5f
+              localCpuPct = localResult.localCpuPct,
+              localCpuMeasured = localResult.localCpuMeasured
             )
             isSimulated = cloudExecution.executionProof != ExecutionProof.REAL_OCI_WORKER
           }
@@ -157,8 +160,9 @@ class ComputeRepository(
           durationMs = result.durationMs,
           resultSummary = result.summary,
           speedupRatio = speedupRatio,
-          localCpuPct = result.localCpuPct,
-          cloudCpuPct = if (job.target != ExecutionTarget.LOCAL_DEVICE) 70f else 0f,
+          localCpuPct = if (result.localCpuMeasured) result.localCpuPct else -1f,
+          localCpuMeasured = result.localCpuMeasured,
+          cloudCpuPct = workerCpuPct ?: -1f,
           isSimulatedCloud = isSimulated
         )
         database.computeJobDao().updateJob(ComputeJobEntity.fromDomain(completedJob))
@@ -170,7 +174,7 @@ class ComputeRepository(
             roundTripLatencyMs = currentTel.roundTripLatencyMs,
             ociCpuPct = currentTel.ociCpuPct,
             ociMemoryMb = currentTel.ociMemoryMb,
-            localCpuPct = result.localCpuPct,
+            localCpuPct = if (result.localCpuMeasured) result.localCpuPct else -1f,
             throughputKbps = currentTel.networkThroughputKbps
           )
         )

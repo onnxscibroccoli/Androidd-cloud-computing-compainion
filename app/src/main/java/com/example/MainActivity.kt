@@ -1,7 +1,16 @@
 package com.example
 
+import android.Manifest
 import android.os.Bundle
+import android.os.Build
+import android.content.pm.PackageManager
+import android.content.Intent
+import android.net.Uri
+import android.app.AlertDialog
+import android.text.InputType
+import android.widget.EditText
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -27,6 +36,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -37,6 +47,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import com.example.auth.OciOAuthManager
+import com.example.transport.ControlPlaneCredentialStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.example.ui.screens.ComputeQueueScreen
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.MtlsSettingsScreen
@@ -47,6 +63,87 @@ import com.example.viewmodel.ControllerViewModel
 class MainActivity : ComponentActivity() {
 
   private val viewModel: ControllerViewModel by viewModels()
+  private val ociAuthStatus = mutableStateOf("OCI sign-in required")
+  private var oauthManager: OciOAuthManager? = null
+  private var pendingIdentityUri: Uri? = null
+  private var pendingIdentityPassword: CharArray? = null
+
+  private val notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+    if (granted) viewModel.requestShizukuPermission()
+    else viewModel.showMessage("Notification permission is required for visible background execution.")
+  }
+
+  private val identityPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    if (uri == null) {
+      viewModel.showMessage("mTLS identity import cancelled.")
+    } else {
+      pendingIdentityUri = uri
+      promptIdentityPasswordAndChooseCa()
+    }
+  }
+
+  private var pendingRishScriptUri: Uri? = null
+  private var pendingRishScriptHash: String? = null
+  private var pendingRishDexUri: Uri? = null
+
+  private val rishScriptPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    if (uri == null) {
+      viewModel.showMessage("Rish script selection cancelled.")
+    } else {
+      pendingRishScriptUri = uri
+      promptExpectedRishScriptHash()
+    }
+  }
+
+  private val rishDexPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    if (uri == null) {
+      clearPendingRishProvisioning()
+      viewModel.showMessage("Rish DEX selection cancelled.")
+    } else {
+      pendingRishDexUri = uri
+      promptExpectedRishDexHash()
+    }
+  }
+
+  private val rootCaPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { caUri ->
+    val identityUri = pendingIdentityUri
+    val password = pendingIdentityPassword
+    if (caUri == null || identityUri == null || password == null) {
+      password?.fill('\u0000')
+      pendingIdentityUri = null
+      pendingIdentityPassword = null
+      viewModel.showMessage("mTLS identity and root CA must both be selected.")
+      return@registerForActivityResult
+    }
+    lifecycleScope.launch {
+      try {
+        val summary = withContext(Dispatchers.IO) {
+          val identityStream = contentResolver.openInputStream(identityUri)
+            ?: throw IllegalStateException("Unable to read selected PKCS#12 identity")
+          val caStream = contentResolver.openInputStream(caUri)
+            ?: throw IllegalStateException("Unable to read selected root CA bundle")
+          ControlPlaneCredentialStore(applicationContext).importCredentials(
+            identityStream,
+            password,
+            caStream
+          )
+        }
+        viewModel.updateMtlsIdentitySummary(
+          subject = summary.subject,
+          issuer = summary.issuer,
+          fingerprint = summary.sha256Fingerprint,
+          rootCertificateCount = summary.rootCertificateCount
+        )
+        viewModel.showMessage("Device-bound mTLS identity provisioned. Verify the endpoint with the authenticated health check.")
+      } catch (error: Exception) {
+        viewModel.showMessage("mTLS identity import failed: " + (error.message ?: error.javaClass.simpleName))
+      } finally {
+        password.fill('\u0000')
+        pendingIdentityUri = null
+        pendingIdentityPassword = null
+      }
+    }
+  }
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
@@ -54,14 +151,192 @@ class MainActivity : ComponentActivity() {
 
     setContent {
       MyApplicationTheme {
-        MainControllerApp(viewModel = viewModel)
+        MainControllerApp(
+          viewModel = viewModel,
+          ociAuthStatus = ociAuthStatus.value,
+          onOciSignIn = { beginOciSignIn() },
+          onProvisionIdentity = { beginProvisioningIdentity() },
+          onRequestShizukuPermission = { beginShizukuPermissionRequest() },
+          onInstallRishBundle = { beginRishProvisioning() },
+          onStopShizukuBackgroundExecution = { viewModel.stopShizukuBackgroundExecution() }
+        )
+      }
+    }
+    handleOAuthIntent(intent)
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    handleOAuthIntent(intent)
+  }
+
+  private fun beginShizukuPermissionRequest() {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+      checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+    ) {
+      notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+    } else {
+      viewModel.requestShizukuPermission()
+    }
+  }
+
+  private fun beginRishProvisioning() {
+    viewModel.showMessage("Select the official Shizuku Rish shell script.")
+    rishScriptPicker.launch(arrayOf("text/x-shellscript", "application/octet-stream"))
+  }
+
+  private fun promptExpectedRishScriptHash() {
+    promptSha256(
+      title = "Verify Rish script",
+      description = "Enter the 64-character SHA-256 digest obtained from the trusted official Shizuku release/source.",
+      onValid = { digest ->
+        pendingRishScriptHash = digest
+        rishDexPicker.launch(arrayOf("application/octet-stream"))
+      }
+    )
+  }
+
+  private fun promptExpectedRishDexHash() {
+    promptSha256(
+      title = "Verify Rish DEX",
+      description = "Enter the 64-character SHA-256 digest obtained from the same trusted Shizuku release/source.",
+      onValid = { digest ->
+        val scriptUri = pendingRishScriptUri
+        val dexUri = pendingRishDexUri
+        val scriptHash = pendingRishScriptHash
+        if (scriptUri == null || dexUri == null || scriptHash == null) {
+          clearPendingRishProvisioning()
+          viewModel.showMessage("Both Rish files and their trusted digests are required.")
+          return@promptSha256
+        }
+        lifecycleScope.launch {
+          try {
+            withContext(Dispatchers.IO) {
+              val scriptStream = contentResolver.openInputStream(scriptUri)
+                ?: throw IllegalStateException("Unable to read selected Rish script")
+              try {
+                val dexStream = contentResolver.openInputStream(dexUri)
+                  ?: throw IllegalStateException("Unable to read selected Rish DEX")
+                try {
+                  viewModel.installRishBundle(scriptStream, dexStream, scriptHash, digest)
+                } finally {
+                  dexStream.close()
+                }
+              } finally {
+                scriptStream.close()
+              }
+            }
+          } catch (error: Exception) {
+            viewModel.showMessage("Rish provisioning failed: " + (error.message ?: error.javaClass.simpleName))
+          } finally {
+            clearPendingRishProvisioning()
+          }
+        }
+      }
+    )
+  }
+
+  private fun promptSha256(title: String, description: String, onValid: (String) -> Unit) {
+    val input = EditText(this).apply {
+      inputType = InputType.TYPE_CLASS_TEXT
+      hint = "64 hexadecimal characters"
+    }
+    AlertDialog.Builder(this)
+      .setTitle(title)
+      .setMessage(description)
+      .setView(input)
+      .setNegativeButton("Cancel") { _, _ -> clearPendingRishProvisioning() }
+      .setPositiveButton("Verify") { _, _ ->
+        val digest = input.text?.toString()?.trim()?.lowercase().orEmpty()
+        if (!digest.matches(Regex("^[0-9a-f]{64}$"))) {
+          clearPendingRishProvisioning()
+          viewModel.showMessage("SHA-256 must contain exactly 64 hexadecimal characters.")
+        } else {
+          onValid(digest)
+        }
+      }
+      .show()
+  }
+
+  private fun clearPendingRishProvisioning() {
+    pendingRishScriptUri = null
+    pendingRishScriptHash = null
+    pendingRishDexUri = null
+  }
+
+  private fun beginProvisioningIdentity() {
+    viewModel.showMessage("Select the device-specific PKCS#12 client identity.")
+    identityPicker.launch(arrayOf("application/x-pkcs12", "application/octet-stream"))
+  }
+
+  private fun promptIdentityPasswordAndChooseCa() {
+    val input = EditText(this).apply {
+      inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+      hint = "PKCS#12 password"
+    }
+    AlertDialog.Builder(this)
+      .setTitle("Unlock client identity")
+      .setMessage("Enter the password for this device's PKCS#12 identity. It will be stored encrypted with Android Keystore.")
+      .setView(input)
+      .setNegativeButton("Cancel") { _, _ ->
+        pendingIdentityUri = null
+        viewModel.showMessage("mTLS identity import cancelled.")
+      }
+      .setPositiveButton("Continue") { _, _ ->
+        val password = input.text?.toString()?.toCharArray() ?: charArrayOf()
+        if (password.isEmpty()) {
+          pendingIdentityUri = null
+          viewModel.showMessage("PKCS#12 password is required.")
+        } else {
+          pendingIdentityPassword = password
+          viewModel.showMessage("Select the trusted control-plane root CA PEM bundle.")
+          rootCaPicker.launch(arrayOf("application/x-pem-file", "text/plain", "application/octet-stream"))
+        }
+      }
+      .show()
+  }
+
+  private fun getOciOAuthManager(): OciOAuthManager =
+    oauthManager ?: OciOAuthManager(applicationContext).also { oauthManager = it }
+
+  private fun beginOciSignIn() {
+    try {
+      val request = getOciOAuthManager().createAuthorizationRequest()
+      ociAuthStatus.value = "Waiting for OCI authorization in the browser"
+      startActivity(Intent(Intent.ACTION_VIEW, request.url))
+    } catch (error: Exception) {
+      ociAuthStatus.value = "OCI sign-in unavailable: " + (error.message ?: error.javaClass.simpleName)
+    }
+  }
+
+  private fun handleOAuthIntent(intent: Intent?) {
+    val callback = intent?.data ?: return
+    if (callback.scheme != "com.onnxscibroccoli.omnikali" ||
+      callback.host != "oauth" || callback.path != "/callback") return
+    lifecycleScope.launch {
+      ociAuthStatus.value = "Validating OCI authorization response"
+      try {
+        val tokens = getOciOAuthManager().handleAuthorizationRedirect(callback)
+        ociAuthStatus.value = "OCI authenticated. Token type=" + tokens.tokenType +
+          "; expires in " + (tokens.expiresInSeconds?.toString() ?: "unknown") + " seconds."
+      } catch (error: Exception) {
+        ociAuthStatus.value = "OCI sign-in failed: " + (error.message ?: error.javaClass.simpleName)
       }
     }
   }
 }
 
 @Composable
-fun MainControllerApp(viewModel: ControllerViewModel) {
+fun MainControllerApp(
+  viewModel: ControllerViewModel,
+  ociAuthStatus: String,
+  onOciSignIn: () -> Unit,
+  onProvisionIdentity: () -> Unit,
+  onRequestShizukuPermission: () -> Unit,
+  onInstallRishBundle: () -> Unit,
+  onStopShizukuBackgroundExecution: () -> Unit
+) {
   val activeTab by viewModel.activeTab.collectAsStateWithLifecycle()
   val connectionState by viewModel.connectionState.collectAsStateWithLifecycle()
   val telemetry by viewModel.currentTelemetry.collectAsStateWithLifecycle()
@@ -161,7 +436,12 @@ fun MainControllerApp(viewModel: ControllerViewModel) {
           jobs = jobs,
           onDispatchPreset = { algo, target -> viewModel.dispatchPreset(algo, target) },
           onNavigateToTasks = { viewModel.setTab(1) },
-          onTestHandshake = { viewModel.attemptTlsHandshake() }
+          onTestHandshake = { viewModel.attemptTlsHandshake() },
+          ociAuthStatus = ociAuthStatus,
+          onOciSignIn = onOciSignIn,
+          onRequestShizukuPermission = onRequestShizukuPermission,
+          onInstallRishBundle = onInstallRishBundle,
+          onStopShizukuBackgroundExecution = onStopShizukuBackgroundExecution
         )
 
         1 -> ComputeQueueScreen(
@@ -188,7 +468,7 @@ fun MainControllerApp(viewModel: ControllerViewModel) {
           onUpdateConfig = { host, port, latency, keepalive, mtls ->
             viewModel.updateMtlsConfig(host, port, latency, keepalive, mtls)
           },
-          onGenerateNewCert = { viewModel.generateNewEphemeralCert() },
+          onProvisionIdentity = onProvisionIdentity,
           onAttemptHandshake = { viewModel.attemptTlsHandshake() },
           onDisconnect = { viewModel.disconnectStream() },
           onClearAll = { viewModel.clearAllHistory() }

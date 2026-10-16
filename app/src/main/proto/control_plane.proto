@@ -1,0 +1,73 @@
+syntax = "proto3";
+package omnikali.controlplane.v1;
+option java_package = "com.example.transport.proto";
+option java_multiple_files = true;
+
+message DeviceTelemetry {
+  string device_id = 1;
+  int64 observed_at_epoch_ms = 2;
+  double cpu_load_percent = 3;
+  int64 available_memory_bytes = 4;
+  int64 network_rx_bytes = 5;
+  int64 network_tx_bytes = 6;
+  string app_version = 7;
+  map<string, string> attributes = 8;
+  CommandExecutionResult command_result = 9;
+}
+
+message CommandExecutionResult {
+  string command_id = 1;
+  int32 exit_code = 2;
+  string stdout = 3;
+  string stderr = 4;
+  int64 duration_ms = 5;
+  bool timed_out = 6;
+}
+
+message ExecutionCommand {
+  string command_id = 1;
+  string executable = 2;
+  repeated string arguments = 3;
+  int64 deadline_epoch_ms = 4;
+  string requested_by = 5;
+  map<string, string> environment = 6;
+}
+
+message HealthCheckRequest {
+  string client_version = 1;
+}
+
+message HealthCheckResponse {
+  string server_id = 1;
+  bool control_plane_ready = 2;
+  bool device_ready = 3;
+  int64 server_time_epoch_ms = 4;
+}
+
+message SubmitExecutionRequest {
+  string request_id = 1;
+  string job_id = 2;
+  string algorithm = 3;
+  int32 complexity_units = 4;
+  string priority = 5;
+  string title = 6;
+}
+
+message ExecutionReceipt {
+  string request_id = 1;
+  string worker_id = 2;
+  bool accepted = 3;
+  int64 started_at_epoch_ms = 4;
+  int64 completed_at_epoch_ms = 5;
+  int64 duration_ms = 6;
+  int64 operations_count = 7;
+  double worker_cpu_percent = 8;
+  string result_summary = 9;
+  bool worker_cpu_measured = 10;
+}
+
+service ControlPlane {
+  rpc DeviceSession(stream DeviceTelemetry) returns (stream ExecutionCommand);
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+  rpc SubmitExecution(SubmitExecutionRequest) returns (ExecutionReceipt);
+}

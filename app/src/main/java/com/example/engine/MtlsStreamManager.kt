@@ -1,5 +1,20 @@
 package com.example.engine
 
+import android.content.Context
+import android.app.ActivityManager
+import android.net.TrafficStats
+import android.provider.Settings
+import com.example.BuildConfig
+import com.example.auth.OciOAuthManager
+import com.example.transport.ControlPlaneCredentialStore
+import com.example.transport.ControlPlaneTransport
+import com.example.transport.proto.CommandExecutionResult
+import com.example.transport.proto.DeviceTelemetry
+import com.example.transport.proto.ExecutionCommand
+import io.grpc.stub.StreamObserver
+import java.io.File
+import java.security.MessageDigest
+
 import com.example.model.CommandType
 import com.example.model.ComputeJob
 import com.example.model.ConnectionState
@@ -9,6 +24,7 @@ import com.example.model.StreamEvent
 import com.example.model.TelemetrySnapshot
 import com.example.model.TransportMode
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
@@ -37,14 +53,14 @@ import kotlin.random.Random
  * Demo mode must never produce a real connection-success state (READY).
  * Only actual transport evidence from canonical controller integration can advance to READY.
  */
-class MtlsStreamManager {
+class MtlsStreamManager(private val appContext: Context? = null) {
 
   private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
   private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
   val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
-  private val _transportMode = MutableStateFlow(TransportMode.SIMULATED_DEMO)
+  private val _transportMode = MutableStateFlow(TransportMode.CANONICAL_PENDING)
   val transportMode: StateFlow<TransportMode> = _transportMode.asStateFlow()
 
   private val _mtlsConfig = MutableStateFlow(MtlsConfig())
@@ -64,16 +80,26 @@ class MtlsStreamManager {
   val eventsFlow: SharedFlow<StreamEvent> = _eventsFlow.asSharedFlow()
 
   private var demoStreamingJob: Job? = null
+  private var liveTelemetryJob: Job? = null
+  private var liveTransport: ControlPlaneTransport? = null
+  @Volatile private var telemetryObserver: StreamObserver<DeviceTelemetry>? = null
+  @Volatile private var executionCommandHandler: ((ExecutionCommand) -> Unit)? = null
   private var sequenceNumber: Long = 0L
+  @Volatile private var previousCpuCounters: CpuCounters? = null
+  @Volatile private var cachedDeviceId: String? = null
 
   init {
-    // Initial state is cleanly DISCONNECTED, awaiting user action or configuration
-    _connectionState.value = ConnectionState.DISCONNECTED
+    val initialState = if (_mtlsConfig.value.endpointHost.isBlank()) {
+      ConnectionState.UNCONFIGURED
+    } else {
+      ConnectionState.DISCONNECTED
+    }
+    _connectionState.value = initialState
     scope.launch {
       _eventsFlow.emit(
         StreamEvent.Handshake(
           id = UUID.randomUUID().toString(),
-          message = "[CLIENT INIT] Controller initialized in Sandbox. State: DISCONNECTED. No live OCI socket established.",
+          message = "[CLIENT INIT] Controller initialized without opening a socket. State: ${initialState.name}.",
           success = false
         )
       )
@@ -86,21 +112,45 @@ class MtlsStreamManager {
     _connectionState.value = ConnectionState.DISCONNECTED
   }
 
+  fun setExecutionCommandHandler(handler: ((ExecutionCommand) -> Unit)?) {
+    executionCommandHandler = handler
+  }
+
+  fun sendCommandResult(result: CommandExecutionResult) {
+    scope.launch {
+      val observer = telemetryObserver
+      if (observer == null) {
+        _eventsFlow.emit(
+          StreamEvent.StreamError(
+            id = UUID.randomUUID().toString(),
+            code = "COMMAND_RESULT_STREAM_UNAVAILABLE",
+            reason = "Command result was not sent because the authenticated device stream is not open."
+          )
+        )
+        return@launch
+      }
+      try {
+        val telemetry = withContext(Dispatchers.IO) {
+          buildDeviceTelemetry().toBuilder()
+            .setCommandResult(result)
+            .putAttributes("message_type", "command_result")
+            .build()
+        }
+        observer.onNext(telemetry)
+      } catch (error: Exception) {
+        handleLiveStreamError(liveTransport, error)
+      }
+    }
+  }
+
   /**
-   * Performs an honest handshake diagnostic test.
-   * Advances through TLS_AUTHENTICATED, then halts at WAITING_FOR_DEVICE_READINESS.
-   * Will NEVER claim READY because the external canonical OCI transport is unlinked.
-   */
-  /**
-   * Performs a real TLS server-certificate and hostname verification probe.
-   *
-   * This prototype has no client-certificate/private-key provider. Therefore an mTLS-required
-   * configuration fails closed rather than claiming a synthetic TLS_AUTHENTICATED state.
-   * Disabling mTLS allows a genuine platform-trust TLS diagnostic only; it does not authenticate
-   * an OCI identity or establish application/device readiness.
+   * Performs a real mTLS health RPC and opens a persistent bidirectional device stream when the
+   * authenticated server confirms readiness. With mTLS disabled, this method performs only a
+   * server-certificate/hostname diagnostic and never claims device authentication or READY.
    */
   fun attemptTlsHandshake() {
     demoStreamingJob?.cancel()
+    closeLiveTransport(sendCompleted = true)
     scope.launch {
       val config = _mtlsConfig.value
       if (config.endpointHost.isBlank() || config.endpointPort !in 1..65535) {
@@ -109,7 +159,7 @@ class MtlsStreamManager {
           StreamEvent.StreamError(
             id = UUID.randomUUID().toString(),
             code = "UNCONFIGURED",
-            reason = "A valid endpoint host and TCP port are required."
+            reason = "A valid control-plane hostname and TCP port are required."
           )
         )
         return@launch
@@ -119,28 +169,127 @@ class MtlsStreamManager {
       _eventsFlow.emit(
         StreamEvent.Handshake(
           id = UUID.randomUUID().toString(),
-          message = "[TLS PROBE] Starting a real TLS server-certificate and hostname verification probe for ${config.endpointHost}:${config.endpointPort}.",
+          message = if (config.isMtlsEnforced) {
+            "[mTLS CONNECT] Starting an authenticated control-plane health RPC to ${config.endpointHost}:${config.endpointPort}."
+          } else {
+            "[TLS DIAGNOSTIC] Starting server-certificate and hostname verification only for ${config.endpointHost}:${config.endpointPort}."
+          },
           success = false
         )
       )
 
       if (config.isMtlsEnforced) {
-        _connectionState.value = ConnectionState.ERROR
-        val reason = "mTLS is required, but no client certificate/private-key provider is configured. No handshake was claimed and no OCI identity was authenticated."
-        _eventsFlow.emit(
-          StreamEvent.StreamError(
-            id = UUID.randomUUID().toString(),
-            code = "MTLS_CLIENT_IDENTITY_MISSING",
-            reason = reason
+        var retainedTransport = false
+        var transport: ControlPlaneTransport? = null
+        try {
+          val context = appContext ?: throw IllegalStateException(
+            "Application context is required for device-bound mTLS credentials"
           )
-        )
-        _eventsFlow.emit(
-          StreamEvent.Handshake(
-            id = UUID.randomUUID().toString(),
-            message = "[FAIL CLOSED] $reason",
-            success = false
+          val accessToken = OciOAuthManager(context).getValidAccessToken()
+          val activeTransport = ControlPlaneCredentialStore(context).createTransport(
+            config.endpointHost,
+            config.endpointPort,
+            accessToken
           )
-        )
+          transport = activeTransport
+          val started = System.nanoTime()
+          val health = withContext(Dispatchers.IO) {
+            activeTransport.healthCheck(BuildConfig.VERSION_NAME, timeoutSeconds = 10)
+          }
+          val measuredRtt = (System.nanoTime() - started) / 1_000_000f
+          if (health.serverId.isBlank() || health.serverTimeEpochMs <= 0L) {
+            throw SecurityException("Authenticated health response omitted server identity or time evidence")
+          }
+          _connectionState.value = ConnectionState.TLS_AUTHENTICATED
+          _eventsFlow.emit(
+            StreamEvent.Handshake(
+              id = UUID.randomUUID().toString(),
+              message = "[mTLS AUTHENTICATED] Real health RPC completed with trusted server '${health.serverId}'.",
+              success = true
+            )
+          )
+          if (!health.controlPlaneReady || !health.deviceReady) {
+            _connectionState.value = ConnectionState.WAITING_FOR_DEVICE_READINESS
+            _eventsFlow.emit(
+              StreamEvent.Handshake(
+                id = UUID.randomUUID().toString(),
+                message = "[READINESS PENDING] Authenticated server did not confirm both control-plane and device readiness; no device stream was opened.",
+                success = false
+              )
+            )
+            return@launch
+          }
+
+          liveTransport = activeTransport
+          val observer = activeTransport.openDeviceSession(
+            onCommand = { command -> handleExecutionCommand(command) },
+            onError = { error -> handleLiveStreamError(activeTransport, error) },
+            onCompleted = {
+              scope.launch {
+                if (liveTransport === activeTransport) {
+                  closeLiveTransport(sendCompleted = false)
+                  _connectionState.value = ConnectionState.DISCONNECTED
+                  _eventsFlow.emit(
+                    StreamEvent.Handshake(
+                      id = UUID.randomUUID().toString(),
+                      message = "[STREAM CLOSED] Control plane completed the device session.",
+                      success = false
+                    )
+                  )
+                }
+              }
+            }
+          )
+          telemetryObserver = observer
+          val initialTelemetry = buildDeviceTelemetry()
+          observer.onNext(initialTelemetry)
+          _currentTelemetry.value = _currentTelemetry.value.copy(
+            timestamp = initialTelemetry.observedAtEpochMs,
+            roundTripLatencyMs = measuredRtt,
+            localCpuPct = initialTelemetry.cpuLoadPercent.toFloat(),
+            localCpuMeasured = initialTelemetry.attributesMap["cpu_load_measured"] == "true",
+            localMemoryMb = initialTelemetry.availableMemoryBytes / (1024L * 1024L),
+            packetsDispatched = _currentTelemetry.value.packetsDispatched + 1L,
+            streamFps = 1,
+            isSimulated = false,
+            profileLabel = "LIVE mTLS TELEMETRY",
+            instanceIdLabel = initialTelemetry.deviceId,
+            regionLabel = config.endpointHost
+          )
+          _transportMode.value = TransportMode.LIVE_MTLS
+          startLiveTelemetryLoop()
+          retainedTransport = true
+          _connectionState.value = ConnectionState.READY
+          _eventsFlow.emit(
+            StreamEvent.Handshake(
+              id = UUID.randomUUID().toString(),
+              message = "[CONTROL PLANE READY] Authenticated mTLS device stream opened and server readiness was confirmed.",
+              success = true
+            )
+          )
+        } catch (e: Exception) {
+          _connectionState.value = ConnectionState.ERROR
+          val reason = "${e.javaClass.simpleName}: ${e.message ?: "mTLS health or device-stream setup failed"}"
+          _eventsFlow.emit(
+            StreamEvent.StreamError(
+              id = UUID.randomUUID().toString(),
+              code = "MTLS_HEALTH_CHECK_FAILED",
+              reason = reason
+            )
+          )
+          _eventsFlow.emit(
+            StreamEvent.Handshake(
+              id = UUID.randomUUID().toString(),
+              message = "[mTLS FAILURE] ${reason}",
+              success = false
+            )
+          )
+        } finally {
+          if (!retainedTransport) {
+            if (liveTransport === transport) closeLiveTransport(sendCompleted = false)
+            else transport?.close()
+          }
+        }
         return@launch
       }
 
@@ -161,20 +310,12 @@ class MtlsStreamManager {
           }
         }
 
-        _connectionState.value = ConnectionState.TLS_AUTHENTICATED
+        _connectionState.value = ConnectionState.TLS_SERVER_VERIFIED
         _eventsFlow.emit(
           StreamEvent.Handshake(
             id = UUID.randomUUID().toString(),
-            message = "[TLS SERVER VERIFIED] Real TLS handshake succeeded. Protocol=${negotiated.first}; cipher=${negotiated.second}. Client mTLS identity was not used.",
+            message = "[TLS SERVER VERIFIED ONLY] Real TLS handshake succeeded. Protocol=${negotiated.first}; cipher=${negotiated.second}. No client identity was presented and no OCI device authentication occurred.",
             success = true
-          )
-        )
-        _connectionState.value = ConnectionState.WAITING_FOR_DEVICE_READINESS
-        _eventsFlow.emit(
-          StreamEvent.Handshake(
-            id = UUID.randomUUID().toString(),
-            message = "[GATE PAUSE] Server TLS is verified, but no OCI controller protocol or device-readiness response has been received. READY is not asserted.",
-            success = false
           )
         )
       } catch (e: Exception) {
@@ -190,7 +331,7 @@ class MtlsStreamManager {
         _eventsFlow.emit(
           StreamEvent.Handshake(
             id = UUID.randomUUID().toString(),
-            message = "[TLS FAILURE] $reason",
+            message = "[TLS FAILURE] ${reason}",
             success = false
           )
         )
@@ -198,8 +339,160 @@ class MtlsStreamManager {
     }
   }
 
+
+  private data class CpuCounters(val total: Long, val idle: Long)
+
+  private suspend fun buildDeviceTelemetry(): DeviceTelemetry = withContext(Dispatchers.IO) {
+    val context = appContext ?: throw IllegalStateException("Application context is unavailable")
+    val memoryInfo = ActivityManager.MemoryInfo()
+    (context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager)?.getMemoryInfo(memoryInfo)
+    val cpu = readCpuLoad()
+    val rx = TrafficStats.getTotalRxBytes()
+    val tx = TrafficStats.getTotalTxBytes()
+    DeviceTelemetry.newBuilder()
+      .setDeviceId(deviceId(context))
+      .setObservedAtEpochMs(System.currentTimeMillis())
+      .setCpuLoadPercent(cpu.first)
+      .setAvailableMemoryBytes(memoryInfo.availMem.coerceAtLeast(0L))
+      .setNetworkRxBytes(rx.coerceAtLeast(0L))
+      .setNetworkTxBytes(tx.coerceAtLeast(0L))
+      .setAppVersion(BuildConfig.VERSION_NAME)
+      .putAttributes("cpu_load_measured", cpu.second.toString())
+      .putAttributes("network_counters_available", (rx >= 0L && tx >= 0L).toString())
+      .putAttributes("transport", "authenticated_mtls")
+      .build()
+  }
+
+  @Synchronized
+  private fun readCpuLoad(): Pair<Double, Boolean> {
+    val line = runCatching { File("/proc/stat").useLines { lines -> lines.firstOrNull() } }.getOrNull()
+      ?: return 0.0 to false
+    val values = line.trim().split(" ").filter { it.isNotBlank() }.drop(1).mapNotNull { it.toLongOrNull() }
+    if (values.size < 4) return 0.0 to false
+    val current = CpuCounters(values.sum(), values[3] + (values.getOrNull(4) ?: 0L))
+    val previous = previousCpuCounters
+    previousCpuCounters = current
+    if (previous == null) return 0.0 to false
+    val totalDelta = (current.total - previous.total).coerceAtLeast(0L)
+    val idleDelta = (current.idle - previous.idle).coerceAtLeast(0L)
+    if (totalDelta <= 0L) return 0.0 to false
+    return (((totalDelta - idleDelta).coerceAtLeast(0L).toDouble() / totalDelta.toDouble()) * 100.0)
+      .coerceIn(0.0, 100.0) to true
+  }
+
+  private fun deviceId(context: Context): String {
+    cachedDeviceId?.let { return it }
+    val androidId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID).orEmpty()
+    val digest = MessageDigest.getInstance("SHA-256")
+      .digest((context.packageName + ":" + androidId).toByteArray(Charsets.UTF_8))
+      .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+      .take(32)
+    cachedDeviceId = digest
+    return digest
+  }
+
+  private fun handleExecutionCommand(command: ExecutionCommand) {
+    val now = System.currentTimeMillis()
+    if (command.commandId.isBlank() || command.requestedBy.isBlank() ||
+      command.deadlineEpochMs <= now
+    ) {
+      sendCommandResult(
+        CommandExecutionResult.newBuilder()
+          .setCommandId(command.commandId)
+          .setExitCode(124)
+          .setStderr("Command rejected: missing command identity/requester or expired deadline.")
+          .setDurationMs(0L)
+          .setTimedOut(command.deadlineEpochMs in 1L..now)
+          .build()
+      )
+      return
+    }
+    val handler = executionCommandHandler
+    if (handler == null) {
+      sendCommandResult(
+        CommandExecutionResult.newBuilder()
+          .setCommandId(command.commandId)
+          .setExitCode(126)
+          .setStderr("Command rejected because no Shizuku execution dispatcher is bound.")
+          .setDurationMs(0L)
+          .build()
+      )
+      return
+    }
+    try {
+      handler(command)
+    } catch (error: Exception) {
+      sendCommandResult(
+        CommandExecutionResult.newBuilder()
+          .setCommandId(command.commandId)
+          .setExitCode(126)
+          .setStderr("Command dispatcher rejected the command: " + (error.message ?: error.javaClass.simpleName))
+          .setDurationMs(0L)
+          .build()
+      )
+    }
+  }
+
+  private fun handleLiveStreamError(transport: ControlPlaneTransport?, error: Throwable) {
+    scope.launch {
+      if (transport != null && liveTransport !== transport) return@launch
+      closeLiveTransport(sendCompleted = false)
+      _connectionState.value = ConnectionState.ERROR
+      val reason = error.javaClass.simpleName + ": " + (error.message ?: "gRPC device stream failed")
+      _eventsFlow.emit(
+        StreamEvent.StreamError(
+          id = UUID.randomUUID().toString(),
+          code = "MTLS_DEVICE_STREAM_FAILED",
+          reason = reason
+        )
+      )
+    }
+  }
+
+  private fun startLiveTelemetryLoop() {
+    liveTelemetryJob?.cancel()
+    liveTelemetryJob = scope.launch {
+      while (isActive && telemetryObserver != null) {
+        delay(15_000L)
+        val observer = telemetryObserver ?: break
+        try {
+          val telemetry = buildDeviceTelemetry()
+          observer.onNext(telemetry)
+          _currentTelemetry.value = _currentTelemetry.value.copy(
+            timestamp = telemetry.observedAtEpochMs,
+            localCpuPct = telemetry.cpuLoadPercent.toFloat(),
+            localCpuMeasured = telemetry.attributesMap["cpu_load_measured"] == "true",
+            localMemoryMb = telemetry.availableMemoryBytes / (1024L * 1024L),
+            packetsDispatched = _currentTelemetry.value.packetsDispatched + 1L,
+            streamFps = 1,
+            isSimulated = false,
+            profileLabel = "LIVE mTLS TELEMETRY",
+            instanceIdLabel = telemetry.deviceId,
+            regionLabel = _mtlsConfig.value.endpointHost
+          )
+        } catch (error: Exception) {
+          handleLiveStreamError(liveTransport, error)
+          break
+        }
+      }
+    }
+  }
+
+  private fun closeLiveTransport(sendCompleted: Boolean) {
+    liveTelemetryJob?.cancel()
+    liveTelemetryJob = null
+    val observer = telemetryObserver
+    telemetryObserver = null
+    if (sendCompleted) runCatching { observer?.onCompleted() }
+    val transport = liveTransport
+    liveTransport = null
+    transport?.close()
+    _transportMode.value = TransportMode.CANONICAL_PENDING
+  }
+
   fun disconnect() {
     demoStreamingJob?.cancel()
+    closeLiveTransport(sendCompleted = true)
     _connectionState.value = ConnectionState.DISCONNECTED
     scope.launch {
       _eventsFlow.emit(
@@ -212,6 +505,13 @@ class MtlsStreamManager {
     }
   }
 
+  fun shutdown() {
+    demoStreamingJob?.cancel()
+    closeLiveTransport(sendCompleted = true)
+    _connectionState.value = ConnectionState.DISCONNECTED
+    scope.cancel()
+  }
+
   /**
    * Starts or stops synthetic demo telemetry stream.
    * All frames are explicitly stamped as DEMO.
@@ -220,11 +520,13 @@ class MtlsStreamManager {
     if (!enable) {
       demoStreamingJob?.cancel()
       demoStreamingJob = null
+      _transportMode.value = if (liveTransport != null) TransportMode.LIVE_MTLS else TransportMode.CANONICAL_PENDING
       _currentTelemetry.value = _currentTelemetry.value.copy(streamFps = 0)
       return
     }
 
     if (demoStreamingJob?.isActive == true) return
+    _transportMode.value = TransportMode.SIMULATED_DEMO
 
     demoStreamingJob = scope.launch {
       var packetsIngested = 0L
@@ -340,7 +642,8 @@ class MtlsStreamManager {
       durationMs = totalDuration,
       operationsCount = job.complexityUnits.toLong(),
       summary = summary,
-      localCpuPct = 2.0f
+      localCpuPct = 0f,
+      localCpuMeasured = false
     )
   }
 }

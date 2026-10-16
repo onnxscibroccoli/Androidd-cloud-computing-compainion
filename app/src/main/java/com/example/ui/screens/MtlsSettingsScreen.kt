@@ -65,7 +65,7 @@ fun MtlsSettingsScreen(
   connectionState: ConnectionState,
   config: MtlsConfig,
   onUpdateConfig: (String, Int, Int, Int, Boolean) -> Unit,
-  onGenerateNewCert: () -> Unit,
+  onProvisionIdentity: () -> Unit,
   onAttemptHandshake: () -> Unit,
   onDisconnect: () -> Unit,
   onClearAll: () -> Unit,
@@ -129,7 +129,7 @@ fun MtlsSettingsScreen(
           Text(text = "Transport Handshake Diagnostic", fontSize = 14.sp, fontWeight = FontWeight.Bold)
           Spacer(modifier = Modifier.height(4.dp))
           Text(
-            text = "Initiates TLS 1.3 handshake verification. State advances to TLS_AUTHENTICATED, then halts at WAITING_FOR_DEVICE_READINESS until external canonical controller contracts are integrated.",
+            text = "Runs a real mTLS HealthCheck RPC and opens the persistent DeviceSession stream only when the authenticated server confirms readiness. With mTLS disabled, only server certificate/hostname verification occurs and the state is TLS_SERVER_VERIFIED, never mutual authentication.",
             fontSize = 11.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant
           )
@@ -325,7 +325,7 @@ fun MtlsSettingsScreen(
               Icon(imageVector = Icons.Default.VpnKey, contentDescription = null, tint = SecurityGreen, modifier = Modifier.size(18.dp))
             }
             Spacer(modifier = Modifier.width(10.dp))
-            Text(text = "Client X.509 Identity (Prototype Spec)", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Text(text = "Client X.509 Identity (Device-Bound)", fontSize = 14.sp, fontWeight = FontWeight.Bold)
           }
 
           Spacer(modifier = Modifier.height(14.dp))
@@ -339,7 +339,7 @@ fun MtlsSettingsScreen(
           Spacer(modifier = Modifier.height(14.dp))
 
           OutlinedButton(
-            onClick = onGenerateNewCert,
+            onClick = onProvisionIdentity,
             shape = RoundedCornerShape(10.dp),
             modifier = Modifier
               .fillMaxWidth()
@@ -347,7 +347,7 @@ fun MtlsSettingsScreen(
           ) {
             Icon(Icons.Default.Key, contentDescription = null, modifier = Modifier.size(16.dp))
             Spacer(modifier = Modifier.width(6.dp))
-            Text("Generate Prototype Client Keypair", fontSize = 12.sp)
+            Text("Import PKCS#12 Client Identity + Root CA", fontSize = 12.sp)
           }
         }
       }

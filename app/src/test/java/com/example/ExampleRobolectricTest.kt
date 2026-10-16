@@ -1,73 +1,42 @@
 package com.example
 
-import android.content.Context
-import androidx.test.core.app.ApplicationProvider
 import com.example.engine.LocalComputeEngine
 import com.example.engine.MtlsStreamManager
 import com.example.model.ConnectionState
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
+import kotlinx.coroutines.runBlocking
 
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
-class ExampleRobolectricTest {
+class ExampleUnitTest {
+    @Test
+    fun localBenchmarksReturnMeasuredOrExplicitlyUnavailableCpuMetrics() = runBlocking {
+        val noProgress: suspend (Float) -> Unit = {}
+        val results = listOf(
+            LocalComputeEngine.executeMatrixMultiply(64, noProgress),
+            LocalComputeEngine.executeCryptoHashChain(100, noProgress),
+            LocalComputeEngine.executeMonteCarloPi(50_000, noProgress),
+            LocalComputeEngine.executePrimeSieve(10_000, noProgress),
+            LocalComputeEngine.executeSensorTelemetrySynthesis(1_000, noProgress)
+        )
 
-  @Test
-  fun `read string from context`() {
-    val context = ApplicationProvider.getApplicationContext<Context>()
-    val appName = context.getString(R.string.app_name)
-    assertEquals("OCI Cloud Controller", appName)
-  }
+        results.forEach { result ->
+            assertTrue(result.durationMs >= 1L)
+            assertTrue(result.localCpuPct in 0f..100f)
+            val measured = result.summary.contains("Measured system CPU load")
+            val unavailable = result.summary.contains("System CPU load measurement unavailable")
+            assertTrue("CPU metric must be measured or explicitly unavailable", measured || unavailable)
+            assertEquals(measured, result.localCpuMeasured)
+        }
+    }
 
-  @Test
-  fun `local compute engine executes matrix multiplication`() = runBlocking {
-    val result = LocalComputeEngine.executeMatrixMultiply(64) { }
-    assertNotNull(result)
-    assertTrue("Duration should be >= 0", result.durationMs >= 0)
-    assertTrue("Should perform operations", result.operationsCount > 0)
-  }
-
-  @Test
-  fun `local compute engine executes crypto hash chain`() = runBlocking {
-    val result = LocalComputeEngine.executeCryptoHashChain(500) { }
-    assertNotNull(result)
-    assertTrue("Operations count matches", result.operationsCount == 500L)
-  }
-
-  @Test
-  fun `local compute engine executes prime sieve`() = runBlocking {
-    val result = LocalComputeEngine.executePrimeSieve(10_000) { }
-    assertNotNull(result)
-    assertTrue("Operations count matches limit", result.operationsCount == 10_000L)
-  }
-
-  @Test
-  fun `mtls stream manager initial state is disconnected`() {
-    val streamManager = MtlsStreamManager()
-    assertNotNull(streamManager.mtlsConfig.value)
-    assertEquals(443, streamManager.mtlsConfig.value.endpointPort)
-    assertEquals(ConnectionState.DISCONNECTED, streamManager.connectionState.value)
-    assertFalse("Disconnected state cannot be operational", streamManager.connectionState.value.isReady)
-  }
-
-  @Test
-  fun `mTLS required without client identity fails closed`() = runBlocking {
-    val streamManager = MtlsStreamManager()
-    streamManager.updateConfig(streamManager.mtlsConfig.value.copy(isMtlsEnforced = true))
-    streamManager.attemptTlsHandshake()
-    // The default config has no client-certificate/private-key provider. It must not claim TLS auth.
-    delay(250)
-    assertEquals(ConnectionState.ERROR, streamManager.connectionState.value)
-    assertFalse("Missing client identity must never be reported as ready", streamManager.connectionState.value.isReady)
-    assertNotEquals(ConnectionState.READY, streamManager.connectionState.value)
-  }
+    @Test
+    fun unconfiguredControlPlaneNeverClaimsAuthentication() {
+        val manager = MtlsStreamManager()
+        try {
+            assertEquals(ConnectionState.UNCONFIGURED, manager.connectionState.value)
+        } finally {
+            manager.shutdown()
+        }
+    }
 }

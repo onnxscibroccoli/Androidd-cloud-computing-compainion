@@ -18,6 +18,7 @@ data class OciExecutionResult(
   val executionProof: ExecutionProof,
   val workerId: String? = null,
   val requestId: String? = null,
+  val workerCpuPct: Float? = null,
   val evidenceSummary: String
 )
 
@@ -36,8 +37,23 @@ interface OciControllerService {
 
 /**
  * Explicit demo adapter. It is deliberately incapable of returning REAL_OCI_WORKER.
- * Replace only after the controller API and receipt-verification contract are implemented.
+ * The production adapter is `GrpcOciControllerService`; it uses the mTLS control-plane contract and returns REAL_OCI_WORKER only after validating the authenticated receipt.
  */
+/**
+ * Default safe adapter for non-production contexts. It fails explicitly instead of returning a
+ * fabricated cloud result. Tests or demo UI must opt into DemoOciControllerService deliberately.
+ */
+class UnconfiguredOciControllerService : OciControllerService {
+  override suspend fun submit(
+    job: ComputeJob,
+    onProgress: suspend (Float) -> Unit
+  ): OciExecutionResult {
+    throw IllegalStateException(
+      "Live OCI execution is not configured. Provision the control-plane mTLS identity, trusted CA, and server endpoint."
+    )
+  }
+}
+
 class DemoOciControllerService(
   private val streamManager: MtlsStreamManager
 ) : OciControllerService {

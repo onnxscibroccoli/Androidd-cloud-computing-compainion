@@ -10,8 +10,8 @@ enum class CommandType(val displayName: String, val description: String) {
 
 enum class ExecutionTarget(val displayName: String, val badgeColor: Long) {
   LOCAL_DEVICE("Local Mobile CPU (Actual)", 0xFF64748B),
-  OCI_CLOUD_STREAM("OCI Cloud gRPC (Simulated Demo)", 0xFFC74634),
-  HYBRID_SPLIT("Hybrid Split (Local Actual + Demo Cloud)", 0xFF00E5BE)
+  OCI_CLOUD_STREAM("OCI Cloud gRPC (mTLS)", 0xFFC74634),
+  HYBRID_SPLIT("Hybrid Split (Local + OCI mTLS)", 0xFF00E5BE)
 }
 
 enum class JobStatus {
@@ -36,7 +36,8 @@ enum class Priority(val label: String) {
 enum class ConnectionState(val label: String, val isReady: Boolean) {
   UNCONFIGURED("UNCONFIGURED", false),
   CONNECTING("CONNECTING", false),
-  TLS_AUTHENTICATED("TLS_AUTHENTICATED", false),
+  TLS_SERVER_VERIFIED("TLS_SERVER_VERIFIED (server certificate only)", false),
+  TLS_AUTHENTICATED("TLS_AUTHENTICATED (mutual TLS)", false),
   WAITING_FOR_DEVICE_READINESS("WAITING_FOR_DEVICE_READINESS", false),
   READY("READY", true),
   DISCONNECTED("DISCONNECTED", false),
@@ -45,7 +46,8 @@ enum class ConnectionState(val label: String, val isReady: Boolean) {
 
 enum class TransportMode(val label: String) {
   SIMULATED_DEMO("Demo / Simulation (Synthetic Frames)"),
-  CANONICAL_PENDING("Pending Canonical OCI Integration")
+  CANONICAL_PENDING("Control Plane Not Connected"),
+  LIVE_MTLS("Live Authenticated mTLS Stream")
 }
 
 data class ComputeJob(
@@ -61,6 +63,7 @@ data class ComputeJob(
   val resultSummary: String = "",
   val speedupRatio: Float = 1.0f,
   val localCpuPct: Float = 0f,
+  val localCpuMeasured: Boolean = false,
   val cloudCpuPct: Float = 0f,
   val timestamp: Long = System.currentTimeMillis(),
   val isSimulatedCloud: Boolean = false,
@@ -74,6 +77,7 @@ data class TelemetrySnapshot(
   val ociMemoryMb: Long = 0L,
   val ociGpuPct: Float? = null,
   val localCpuPct: Float = 0f,
+  val localCpuMeasured: Boolean = false,
   val localMemoryMb: Long = 0L,
   val networkThroughputKbps: Float = 0f,
   val packetsDispatched: Long = 0L,
@@ -87,14 +91,14 @@ data class TelemetrySnapshot(
 )
 
 data class MtlsConfig(
-  val endpointHost: String = "compute.us-ashburn-1.oraclecloud.com",
+  val endpointHost: String = "",
   val endpointPort: Int = 443,
-  val clientCertSubject: String = "CN=android-controller-demo, O=Prototype, OU=Demo",
-  val clientCertIssuer: String = "CN=Demo Self-Signed Prototype CA",
-  val clientCertFingerprint: String = "DEMO:SIMULATED:CERT:FINGERPRINT:7A:4F:92:B1:08:C3:55:19",
-  val caRootSubject: String = "CN=Demo Local Prototype Root CA",
-  val cipherSuite: String = "TLS_AES_256_GCM_SHA384 (Spec Template)",
-  val tlsVersion: String = "TLSv1.3",
+  val clientCertSubject: String = "NOT_PROVISIONED",
+  val clientCertIssuer: String = "NOT_PROVISIONED",
+  val clientCertFingerprint: String = "NOT_PROVISIONED",
+  val caRootSubject: String = "NOT_PROVISIONED",
+  val cipherSuite: String = "NOT_NEGOTIATED",
+  val tlsVersion: String = "NOT_NEGOTIATED",
   val isMtlsEnforced: Boolean = true,
   val keepAliveIntervalSec: Int = 5,
   val simulatedFastConnectLatencyMs: Int = 15,
