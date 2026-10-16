@@ -155,7 +155,7 @@ class MainActivity : ComponentActivity() {
           viewModel = viewModel,
           ociAuthStatus = ociAuthStatus.value,
           onOciSignIn = { beginOciSignIn() },
-          onProvisionIdentity = onProvisionIdentity,
+          onProvisionIdentity = { beginProvisioningIdentity() },
           onRequestShizukuPermission = { beginShizukuPermissionRequest() },
           onInstallRishBundle = { beginRishProvisioning() },
           onStopShizukuBackgroundExecution = { viewModel.stopShizukuBackgroundExecution() }
@@ -468,7 +468,7 @@ fun MainControllerApp(
           onUpdateConfig = { host, port, latency, keepalive, mtls ->
             viewModel.updateMtlsConfig(host, port, latency, keepalive, mtls)
           },
-          onProvisionIdentity = { beginProvisioningIdentity() },
+          onProvisionIdentity = onProvisionIdentity,
           onAttemptHandshake = { viewModel.attemptTlsHandshake() },
           onDisconnect = { viewModel.disconnectStream() },
           onClearAll = { viewModel.clearAllHistory() }
