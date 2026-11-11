@@ -10,12 +10,18 @@
 - [build.gradle.kts](https://github.com/onnxscibroccoli/Androidd-cloud-computing-compainion/blob/main/build.gradle.kts)
 - [docs](https://github.com/onnxscibroccoli/Androidd-cloud-computing-compainion/tree/main/docs)
 
-**CI evidence:** no trustworthy workflow result was established during the initial portfolio audit. Mark NOT_VERIFIED until a run proves otherwise.
+**CI evidence (updated 2026-11-11; supersedes the initial audit note):**
+- [Run 38596844382](https://github.com/onnxscibroccoli/Androidd-cloud-computing-compainion/actions/runs/38596844382): `Android APK CI` on a `push` to `main` at `869987b700588a767930c7ec283a2397fb183433` (the current `main` head), success. It covers `testDebugUnitTest` and `assembleDebug`.
+- [Run 43091454377](https://github.com/onnxscibroccoli/Androidd-cloud-computing-compainion/actions/runs/43091454377): the same workflow on this readiness PR head `c0964df`, success.
+- That main run published the pre-release [`android-test-12`](https://github.com/onnxscibroccoli/Androidd-cloud-computing-compainion/releases/tag/android-test-12), tag at `869987b`.
+  - Its `app-debug.apk` GitHub asset digest `sha256:cce9d70731b9cf2af3de9a009c45275ff16af05447b61d692cee5ab54d537011` matches the attached `app-debug.sha256`.
+  - It is a **debug, not production-signed** test build.
+  - Physical-device installation and cloud execution remain NOT_VERIFIED.
 
 ## First reviewer command (check prerequisites before executing)
 
 ```sh
-./gradlew tasks
+gradle tasks   # no ./gradlew script is committed; CI uses a system Gradle via gradle/actions/setup-gradle
 ```
 
 This is a proposed reproduction command, **not a claim of executed testing**. Confirm the command exists in the current repository; record missing scripts/dependencies as NOT_VERIFIED rather than masking failures.
